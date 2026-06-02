@@ -1,0 +1,1082 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="theme-color" content="#0a0a0a">
+<title>Yorkshire Line Editor</title>
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700;900&family=Share+Tech+Mono&family=Roboto+Mono:wght@400;700&display=swap');
+*{margin:0;padding:0;box-sizing:border-box;}
+html,body{height:100%;width:100%;overflow:hidden;background:#050a14;color:#e8eef5;font-family:'Roboto Mono',monospace;font-size:13px;-webkit-user-select:none;user-select:none;}
+button,input,select,textarea{font:inherit;color:inherit;}
+
+#app{display:grid;grid-template-rows:auto 1fr auto;height:100vh;}
+
+/* ============ TOOLBAR ============ */
+#toolbar{background:linear-gradient(180deg,#0e1a2c,#0a1424);border-bottom:1px solid rgba(92,200,255,0.25);padding:0.45rem 0.6rem;display:flex;align-items:center;gap:0.35rem;flex-wrap:wrap;}
+#toolbar h1{font-family:'Orbitron',sans-serif;font-size:0.85rem;font-weight:900;color:#5cc8ff;letter-spacing:0.18em;margin-right:0.8rem;text-shadow:0 0 12px rgba(92,200,255,0.4);}
+#toolbar .sep{width:1px;height:24px;background:rgba(92,200,255,0.18);margin:0 0.35rem;}
+#toolbar button{background:rgba(14,28,46,0.7);border:1px solid rgba(92,200,255,0.32);color:rgba(207,230,247,0.85);padding:0.32rem 0.65rem;font-size:0.7rem;letter-spacing:0.12em;text-transform:uppercase;cursor:pointer;font-family:'Roboto Mono',monospace;transition:all 0.15s;border-radius:2px;}
+#toolbar button:hover{background:rgba(28,52,82,0.85);border-color:rgba(92,200,255,0.6);color:#fff;}
+#toolbar button.active{background:linear-gradient(180deg,rgba(92,200,255,0.45),rgba(92,200,255,0.18));border-color:#9ccfff;color:#fff;box-shadow:0 0 12px rgba(92,200,255,0.4);}
+#toolbar button.primary{background:linear-gradient(180deg,rgba(92,200,255,0.28),rgba(92,200,255,0.1));border-color:rgba(92,200,255,0.6);color:#fff;font-weight:700;}
+#toolbar button.danger{border-color:rgba(255,128,96,0.4);color:#ffb09c;}
+#toolbar button.danger:hover{background:rgba(80,28,20,0.7);}
+
+/* ============ MAIN ============ */
+#main{display:grid;grid-template-columns:1fr 320px;min-height:0;}
+#canvasWrap{position:relative;background:#06101c;overflow:hidden;border-right:1px solid rgba(92,200,255,0.2);}
+#canvas{width:100%;height:100%;display:block;cursor:grab;background:#050b16;}
+#canvas.tooling{cursor:crosshair;}
+#canvas.dragging{cursor:grabbing;}
+#canvas text{user-select:none;font-family:'Roboto Mono',monospace;pointer-events:none;}
+.hint{position:absolute;top:8px;left:10px;font-size:0.65rem;color:rgba(180,210,235,0.45);letter-spacing:0.1em;text-transform:uppercase;pointer-events:none;}
+.coords{position:absolute;bottom:8px;left:10px;font-size:0.62rem;color:rgba(180,210,235,0.55);font-family:'Roboto Mono',monospace;background:rgba(8,16,28,0.7);padding:3px 8px;border-radius:2px;pointer-events:none;}
+
+/* ============ SIDEBAR ============ */
+#sidebar{background:#08121e;overflow-y:auto;padding:0.7rem 0.8rem 1rem;}
+#sidebar h2{font-family:'Orbitron',sans-serif;font-size:0.62rem;color:#9ccfff;letter-spacing:0.25em;text-transform:uppercase;margin:1.1rem 0 0.4rem;padding-bottom:0.3rem;border-bottom:1px dashed rgba(92,200,255,0.18);}
+#sidebar h2:first-child{margin-top:0;}
+#sidebar label{display:flex;flex-direction:column;font-size:0.62rem;letter-spacing:0.1em;text-transform:uppercase;color:rgba(180,210,235,0.55);margin-bottom:0.45rem;}
+#sidebar label > span.row{display:flex;gap:0.4rem;align-items:center;}
+#sidebar input[type=text],#sidebar input[type=number],#sidebar select,#sidebar textarea{background:#0c1828;border:1px solid rgba(92,200,255,0.22);color:#cfe6f7;padding:0.3rem 0.42rem;font-size:0.78rem;letter-spacing:normal;text-transform:none;margin-top:0.1rem;border-radius:2px;width:100%;}
+#sidebar input[type=text]:focus,#sidebar input[type=number]:focus,#sidebar select:focus{outline:none;border-color:#5cc8ff;box-shadow:0 0 10px rgba(92,200,255,0.18);}
+#sidebar .grid2{display:grid;grid-template-columns:1fr 1fr;gap:0.35rem;}
+#sidebar .grid3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.35rem;}
+#sidebar .none{color:rgba(180,210,235,0.4);font-style:italic;font-size:0.7rem;padding:0.3rem 0;}
+#sidebar button.row{background:rgba(14,28,46,0.7);border:1px solid rgba(92,200,255,0.32);color:rgba(207,230,247,0.85);padding:0.25rem 0.5rem;font-size:0.65rem;letter-spacing:0.1em;text-transform:uppercase;cursor:pointer;border-radius:2px;}
+#sidebar button.row:hover{border-color:rgba(92,200,255,0.6);color:#fff;}
+#sidebar button.danger{border-color:rgba(255,128,96,0.4);color:#ffb09c;}
+#sidebar button.danger:hover{background:rgba(80,28,20,0.55);}
+#stationList{list-style:none;margin:0;padding:0;}
+#stationList li{display:grid;grid-template-columns:1.6rem 1fr auto auto auto;gap:0.3rem;align-items:center;padding:0.32rem 0.4rem;border:1px solid rgba(92,200,255,0.12);border-radius:2px;margin-bottom:0.25rem;background:rgba(12,24,40,0.5);}
+#stationList li.selected{border-color:#5cc8ff;background:rgba(28,52,82,0.55);}
+#stationList li .num{font-size:0.65rem;color:rgba(180,210,235,0.5);}
+#stationList li .nm{font-size:0.75rem;color:#cfe6f7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;cursor:pointer;}
+#stationList li button{background:transparent;border:1px solid rgba(92,200,255,0.22);color:rgba(207,230,247,0.7);width:1.45rem;height:1.45rem;padding:0;font-size:0.7rem;border-radius:2px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+#stationList li button:hover{border-color:rgba(92,200,255,0.55);color:#fff;}
+#stationList li button.x{color:#ffb09c;border-color:rgba(255,128,96,0.32);}
+
+/* ============ STATUSBAR ============ */
+#statusbar{background:#0a1424;border-top:1px solid rgba(92,200,255,0.18);padding:0.32rem 0.7rem;display:flex;justify-content:space-between;font-size:0.65rem;letter-spacing:0.1em;color:rgba(180,210,235,0.55);text-transform:uppercase;}
+#msg{font-weight:700;}
+#msg.err{color:#ff8a72;}
+#msg.ok{color:#9cff9c;}
+#msg.info{color:#9ccfff;}
+
+/* ============ SVG CANVAS CONTENTS ============ */
+.gridline{stroke:rgba(92,200,255,0.07);stroke-width:1px;vector-effect:non-scaling-stroke;}
+.gridline.major{stroke:rgba(92,200,255,0.14);}
+.scalebar{stroke:#cfe6f7;stroke-width:2px;vector-effect:non-scaling-stroke;}
+.track{fill:none;stroke:#cfe6f7;stroke-width:3px;vector-effect:non-scaling-stroke;}
+.trackHalo{fill:none;stroke:rgba(92,200,255,0.18);stroke-width:14px;vector-effect:non-scaling-stroke;stroke-linecap:round;}
+.limitZone{fill:none;stroke-width:10px;vector-effect:non-scaling-stroke;stroke-linecap:butt;opacity:0.55;}
+.river{fill:none;stroke:#4090c8;stroke-width:6px;vector-effect:non-scaling-stroke;stroke-linecap:round;stroke-linejoin:round;opacity:0.85;}
+.station{fill:#fff;stroke:#5cc8ff;stroke-width:3px;vector-effect:non-scaling-stroke;cursor:pointer;}
+.station.selected{stroke:#ffaa66;stroke-width:5px;}
+.stationLabel{fill:#cfe6f7;font-size:14px;text-anchor:middle;}
+.featureMark{cursor:pointer;}
+.featureMark.bridge{fill:#5cc8ff;stroke:#1860a0;stroke-width:1.5px;vector-effect:non-scaling-stroke;}
+.featureMark.tunnel{fill:#3a3a3a;stroke:#1a1a1a;stroke-width:1.5px;vector-effect:non-scaling-stroke;}
+.featureMark.viaduct{fill:#a89878;stroke:#403020;stroke-width:1.5px;vector-effect:non-scaling-stroke;}
+.featureMark.mill{fill:#c84848;stroke:#601818;stroke-width:1.5px;vector-effect:non-scaling-stroke;}
+.featureMark.selected{stroke:#ffaa66;stroke-width:3px;}
+.featureLabel{fill:rgba(207,230,247,0.7);font-size:12px;text-anchor:middle;}
+.riverPt{fill:#4090c8;stroke:#0a1828;stroke-width:1.5px;vector-effect:non-scaling-stroke;cursor:pointer;}
+.riverPt.selected{stroke:#ffaa66;stroke-width:3px;}
+.limitMark{cursor:pointer;}
+.limitMark polygon{fill:#f0c850;stroke:#604018;stroke-width:1.5px;vector-effect:non-scaling-stroke;}
+.limitMark.selected polygon{stroke:#ffaa66;stroke-width:3px;}
+.limitLabel{fill:#1a1a1a;font-size:11px;font-weight:700;text-anchor:middle;font-family:'Orbitron',sans-serif;}
+
+</style>
+</head>
+<body>
+
+<div id="app">
+
+  <div id="toolbar">
+    <h1>YORKSHIRE LINE EDITOR</h1>
+    <button id="btnNew">New</button>
+    <button id="btnOpen">Open…</button>
+    <input type="file" id="openFile" accept=".json,application/json" style="display:none;">
+    <button id="btnSave" class="primary">Save JSON</button>
+    <span class="sep"></span>
+    <button data-tool="select" class="active">▣ Select</button>
+    <button data-tool="station">＋ Station</button>
+    <button data-tool="bridge">＋ Bridge</button>
+    <button data-tool="tunnel">＋ Tunnel</button>
+    <button data-tool="viaduct">＋ Viaduct</button>
+    <button data-tool="mill">＋ Mill</button>
+    <button data-tool="river">＋ River pt</button>
+    <button data-tool="limit">＋ Limit</button>
+    <span class="sep"></span>
+    <button id="btnZoomFit">Fit</button>
+  </div>
+
+  <div id="main">
+    <div id="canvasWrap">
+      <svg id="canvas" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div class="hint">Click background to pan · Scroll to zoom · Click a tool then click the canvas</div>
+      <div class="coords" id="coords">—</div>
+    </div>
+    <aside id="sidebar">
+      <h2>Line metadata</h2>
+      <label>Key <input id="m-key" type="text" placeholder="my-line"></label>
+      <label>Name <input id="m-name" type="text" placeholder="My Line"></label>
+      <label>Display name <input id="m-displayName" type="text" placeholder="MY LINE"></label>
+      <label>Service code <input id="m-service" type="text" placeholder="2X42 START → END"></label>
+      <label>Biome <select id="m-biome">
+        <option value="countryside">Countryside</option>
+        <option value="moorland">Moorland</option>
+        <option value="coastal">Coastal</option>
+        <option value="urban">Urban</option>
+        <option value="upland">Upland</option>
+      </select></label>
+
+      <h2>Selected item</h2>
+      <div id="props"><div class="none">Nothing selected. Click an item on the canvas, or use a + tool to add one.</div></div>
+
+      <h2>Stations <span style="float:right;color:rgba(180,210,235,0.45);font-size:0.6rem;" id="stationStats"></span></h2>
+      <ol id="stationList"></ol>
+    </aside>
+  </div>
+
+  <div id="statusbar">
+    <span id="stats">—</span>
+    <span id="msg"></span>
+  </div>
+
+</div>
+
+<script type="module">
+
+// ============================================================
+// CONSTANTS
+// ============================================================
+const SVG_NS = 'http://www.w3.org/2000/svg';
+const LEEDS_LAT = 53.7958, LEEDS_LON = -1.5479;
+const LAT_TO_M = 111000;
+const LON_TO_M = 111000 * Math.cos(LEEDS_LAT * Math.PI / 180);
+const STORAGE_KEY = 'yorkshire-line-editor.v1';
+const DEFAULT_ZOOM = { x: -2000, y: -8000, w: 30000, h: 16000 }; // world-metres viewBox
+
+// ============================================================
+// STATE
+// ============================================================
+const M = {
+  meta: {
+    key: 'my-line', name: 'My Line', displayName: 'MY LINE',
+    biome: 'countryside', service: '2X42 START → END',
+  },
+  stations: [],     // {id, x, y, name, code, plat, side, elev, dwellSec}
+  features: [],     // {id, kind, x, y, len, side}
+  riverPoints: [],  // {id, x, y}
+  limits: [],       // {id, x, y, mph}  (x,y derived/snapped to track)
+};
+
+// Default start limit at km 0 is implicit at export time.
+let tool = 'select';
+let selectedId = null;
+let nextId = 1;
+let viewBox = { ...DEFAULT_ZOOM };
+
+// Interaction state
+let interaction = null; // null | {kind:'pan', x0, y0, vx0, vy0} | {kind:'drag', id, dx, dy}
+let pendingRender = false;
+
+// ============================================================
+// HELPERS
+// ============================================================
+const $ = id => document.getElementById(id);
+const svg = $('canvas');
+const propsEl = $('props');
+const statsEl = $('stats');
+const msgEl = $('msg');
+const coordsEl = $('coords');
+const stationListEl = $('stationList');
+
+function el(tag, attrs = {}, children = []){
+  const e = document.createElementNS(SVG_NS, tag);
+  for (const k in attrs){
+    if (attrs[k] !== null && attrs[k] !== undefined) e.setAttribute(k, attrs[k]);
+  }
+  for (const c of children){ if (c) e.appendChild(c); }
+  return e;
+}
+function uid(prefix){ return prefix + '-' + (nextId++); }
+function msg(text, cls){ msgEl.textContent = text || ''; msgEl.className = cls || ''; if (text) setTimeout(() => { if (msgEl.textContent === text) msg(''); }, 4200); }
+function setStatus(text){ statsEl.textContent = text; }
+function scheduleRender(){ if (pendingRender) return; pendingRender = true; requestAnimationFrame(() => { pendingRender = false; render(); saveLocal(); }); }
+function fmtTime(s){ s = Math.max(0, Math.floor(s)); return String(Math.floor(s/60)).padStart(2,'0') + ':' + String(s%60).padStart(2,'0'); }
+
+// ============================================================
+// COORDINATE TRANSFORMS
+// World: metres, +X east, +Y north.
+// SVG: viewBox in world units; we flip Y by negating it at draw time so the
+// canvas reads correctly (north up).
+// ============================================================
+function clientToWorld(clientX, clientY){
+  const r = svg.getBoundingClientRect();
+  const nx = (clientX - r.left) / r.width;
+  const ny = (clientY - r.top) / r.height;
+  const wx = viewBox.x + nx * viewBox.w;
+  const wy = -(viewBox.y + ny * viewBox.h); // y-flip
+  return { x: wx, y: wy };
+}
+function applyViewBox(){
+  svg.setAttribute('viewBox', `${viewBox.x} ${viewBox.y} ${viewBox.w} ${viewBox.h}`);
+}
+
+// ============================================================
+// TRACK CURVE
+// Catmull-Rom through stations in array order (km auto-derived as straight
+// chord distance — the rendered curve length differs slightly but the sim
+// reprojects from lat/lon at load time so the discrepancy is cosmetic).
+// ============================================================
+function stationKm(i){
+  let km = 0;
+  for (let k = 1; k <= i; k++){
+    const a = M.stations[k-1], b = M.stations[k];
+    km += Math.hypot(b.x - a.x, b.y - a.y) / 1000;
+  }
+  return km;
+}
+function totalKm(){ return M.stations.length < 2 ? 0 : stationKm(M.stations.length - 1); }
+
+function catmullRomPath(pts){
+  // pts: array of {x, y}. Returns SVG path 'd' attribute as a string with
+  // y values negated for SVG draw space.
+  if (pts.length < 2) return '';
+  if (pts.length === 2) return `M ${pts[0].x} ${-pts[0].y} L ${pts[1].x} ${-pts[1].y}`;
+  const d = [`M ${pts[0].x} ${-pts[0].y}`];
+  for (let i = 0; i < pts.length - 1; i++){
+    const p0 = pts[i-1] || pts[i];
+    const p1 = pts[i];
+    const p2 = pts[i+1];
+    const p3 = pts[i+2] || p2;
+    const c1x = p1.x + (p2.x - p0.x) / 6;
+    const c1y = p1.y + (p2.y - p0.y) / 6;
+    const c2x = p2.x - (p3.x - p1.x) / 6;
+    const c2y = p2.y - (p3.y - p1.y) / 6;
+    d.push(`C ${c1x} ${-c1y} ${c2x} ${-c2y} ${p2.x} ${-p2.y}`);
+  }
+  return d.join(' ');
+}
+
+// Sample the track curve at fine intervals so we can snap features / limits /
+// river points to the nearest km along the route. Returns an array of
+// {km, x, y, tx, ty} (tangent) along the curve.
+function sampleTrack(perSegment = 24){
+  const stns = M.stations;
+  if (stns.length < 2) return [];
+  const out = [];
+  let cumKm = 0;
+  // For Catmull-Rom-sampled points (matching the rendered curve), use the
+  // same control-point math as the rendered path.
+  for (let i = 0; i < stns.length - 1; i++){
+    const p0 = stns[i-1] || stns[i];
+    const p1 = stns[i];
+    const p2 = stns[i+1];
+    const p3 = stns[i+2] || p2;
+    let prevX = p1.x, prevY = p1.y;
+    out.push({ km: cumKm, x: p1.x, y: p1.y, tx: p2.x - p1.x, ty: p2.y - p1.y });
+    for (let s = 1; s <= perSegment; s++){
+      const t = s / perSegment;
+      const t2 = t*t, t3 = t2*t;
+      // Standard Catmull-Rom basis (tau = 0.5)
+      const a0 = -0.5*t3 +     t2 - 0.5*t;
+      const a1 =  1.5*t3 - 2.5*t2 + 1.0;
+      const a2 = -1.5*t3 + 2.0*t2 + 0.5*t;
+      const a3 =  0.5*t3 - 0.5*t2;
+      const x = a0*p0.x + a1*p1.x + a2*p2.x + a3*p3.x;
+      const y = a0*p0.y + a1*p1.y + a2*p2.y + a3*p3.y;
+      cumKm += Math.hypot(x - prevX, y - prevY) / 1000;
+      // tangent: numerical derivative
+      const tx = x - prevX, ty = y - prevY;
+      out.push({ km: cumKm, x, y, tx, ty });
+      prevX = x; prevY = y;
+    }
+  }
+  return out;
+}
+
+// Find the sampled point nearest to a world position. Returns {idx, p, distM}.
+function nearestOnTrack(wx, wy, samples = sampleTrack()){
+  if (!samples.length) return null;
+  let bestI = 0, bestD = Infinity;
+  for (let i = 0; i < samples.length; i++){
+    const d = Math.hypot(samples[i].x - wx, samples[i].y - wy);
+    if (d < bestD){ bestD = d; bestI = i; }
+  }
+  return { idx: bestI, p: samples[bestI], distM: bestD };
+}
+
+// Signed lateral offset of a point from the nearest track sample.
+// Positive = right of travel direction; negative = left.
+function lateralOffset(wx, wy, samples){
+  const n = nearestOnTrack(wx, wy, samples);
+  if (!n) return { km: 0, lateral: 0 };
+  const tx = n.p.tx, ty = n.p.ty;
+  const tlen = Math.hypot(tx, ty) || 1;
+  // Right of travel: rotate tangent -90° → (ty, -tx) / tlen.
+  const rx = ty / tlen, ry = -tx / tlen;
+  const dx = wx - n.p.x, dy = wy - n.p.y;
+  const lateral = dx * rx + dy * ry;
+  return { km: n.p.km, lateral };
+}
+
+// ============================================================
+// RENDER
+// ============================================================
+function render(){
+  applyViewBox();
+  // Wipe + rebuild
+  while (svg.firstChild) svg.removeChild(svg.firstChild);
+
+  const samples = sampleTrack();
+
+  // Grid + scale bar
+  svg.appendChild(buildGrid());
+
+  // Snap any out-of-date feature/limit/river offsets to the current track.
+  for (const f of M.features){ snapFeatureToTrack(f, samples); }
+  for (const l of M.limits){ snapLimitToTrack(l, samples); }
+
+  // Track halo + line
+  if (M.stations.length >= 2){
+    const d = catmullRomPath(M.stations);
+    svg.appendChild(el('path', { d, class: 'trackHalo' }));
+    // Limit-coloured zones along the curve
+    const limitZones = buildLimitZones(samples);
+    if (limitZones) svg.appendChild(limitZones);
+    svg.appendChild(el('path', { d, class: 'track' }));
+  }
+
+  // River polyline
+  if (M.riverPoints.length >= 2){
+    const d = M.riverPoints.map((p, i) => `${i ? 'L' : 'M'} ${p.x} ${-p.y}`).join(' ');
+    svg.appendChild(el('path', { d, class: 'river' }));
+  }
+  // River points (dots, draggable)
+  for (const p of M.riverPoints){
+    const dot = el('circle', { cx: p.x, cy: -p.y, r: 100, class: 'riverPt' + (selectedId === p.id ? ' selected' : '') });
+    dot.dataset.id = p.id;
+    svg.appendChild(dot);
+  }
+
+  // Features
+  for (const f of M.features){
+    svg.appendChild(buildFeatureMark(f));
+  }
+  // Speed-limit markers
+  for (const l of M.limits){
+    svg.appendChild(buildLimitMark(l));
+  }
+  // Stations on top
+  for (let i = 0; i < M.stations.length; i++){
+    svg.appendChild(buildStationMark(M.stations[i], i));
+  }
+
+  renderSidebar();
+  renderStatus();
+}
+
+function buildGrid(){
+  const g = el('g');
+  const x0 = viewBox.x, x1 = viewBox.x + viewBox.w;
+  const y0 = viewBox.y, y1 = viewBox.y + viewBox.h;
+  // Major every 5 km, minor every 1 km.
+  const minor = 1000, major = 5000;
+  const sx = Math.floor(x0 / minor) * minor;
+  const sy = Math.floor(y0 / minor) * minor;
+  for (let x = sx; x <= x1; x += minor){
+    g.appendChild(el('line', { x1: x, y1: y0, x2: x, y2: y1, class: 'gridline' + (x % major === 0 ? ' major' : '') }));
+  }
+  for (let y = sy; y <= y1; y += minor){
+    g.appendChild(el('line', { x1: x0, y1: y, x2: x1, y2: y, class: 'gridline' + (y % major === 0 ? ' major' : '') }));
+  }
+  // Scale bar — 5 km. Placed in screen-anchored corner via fixed offsets from viewBox bottom-left.
+  const sbX = x0 + viewBox.w * 0.04;
+  const sbY = y0 + viewBox.h * 0.92;
+  g.appendChild(el('line', { x1: sbX, y1: sbY, x2: sbX + 5000, y2: sbY, class: 'scalebar' }));
+  const txt = el('text', { x: sbX + 2500, y: sbY - viewBox.h * 0.015, fill: '#cfe6f7', 'font-size': viewBox.h * 0.022, 'text-anchor': 'middle' });
+  txt.textContent = '5 km';
+  g.appendChild(txt);
+  return g;
+}
+
+function buildStationMark(s, idx){
+  const g = el('g', { transform: `translate(${s.x}, ${-s.y})` });
+  const c = el('circle', { r: 280, class: 'station' + (selectedId === s.id ? ' selected' : '') });
+  c.dataset.id = s.id;
+  g.appendChild(c);
+  const numTxt = el('text', { y: 6, class: 'stationLabel', 'font-weight': 700, 'font-size': 360 });
+  numTxt.textContent = String(idx + 1);
+  g.appendChild(numTxt);
+  const lbl = el('text', { y: -420, class: 'stationLabel', 'font-size': 380 });
+  lbl.textContent = s.name + (s.code ? ' (' + s.code + ')' : '');
+  g.appendChild(lbl);
+  return g;
+}
+
+function buildFeatureMark(f){
+  const sz = 380;
+  const g = el('g', { transform: `translate(${f.x}, ${-f.y})`, class: 'featureMark' });
+  let icon;
+  if (f.kind === 'bridge'){
+    // ↗ a chevron-shape
+    icon = el('polygon', { points: `${-sz},0 0,${-sz*0.6} ${sz},0 0,${sz*0.6}`, class: 'featureMark bridge' + (selectedId === f.id ? ' selected' : '') });
+  } else if (f.kind === 'tunnel'){
+    icon = el('ellipse', { cx: 0, cy: 0, rx: sz, ry: sz*0.5, class: 'featureMark tunnel' + (selectedId === f.id ? ' selected' : '') });
+  } else if (f.kind === 'viaduct'){
+    icon = el('rect', { x: -sz, y: -sz*0.45, width: sz*2, height: sz*0.9, class: 'featureMark viaduct' + (selectedId === f.id ? ' selected' : '') });
+  } else if (f.kind === 'mill'){
+    icon = el('rect', { x: -sz*0.7, y: -sz*0.7, width: sz*1.4, height: sz*1.4, class: 'featureMark mill' + (selectedId === f.id ? ' selected' : '') });
+  } else {
+    icon = el('circle', { r: sz*0.7, class: 'featureMark' });
+  }
+  icon.dataset.id = f.id;
+  g.appendChild(icon);
+  const lbl = el('text', { y: sz*1.5, class: 'featureLabel' });
+  lbl.textContent = f.kind.toUpperCase() + (f.len ? ' ' + f.len + 'm' : '');
+  g.appendChild(lbl);
+  return g;
+}
+
+function buildLimitMark(l){
+  const sz = 260;
+  const g = el('g', { transform: `translate(${l.x}, ${-l.y})`, class: 'limitMark' + (selectedId === l.id ? ' selected' : '') });
+  const tri = el('polygon', { points: `0,${-sz*1.1} ${sz},${sz*0.4} ${-sz},${sz*0.4}` });
+  tri.dataset.id = l.id;
+  g.appendChild(tri);
+  const txt = el('text', { y: sz*0.05, class: 'limitLabel' });
+  txt.textContent = String(l.mph || 0);
+  g.appendChild(txt);
+  return g;
+}
+
+function limitColor(mph){
+  if (mph >= 60) return '#7cd078';
+  if (mph >= 40) return '#e0c060';
+  if (mph >= 25) return '#e88a3a';
+  return '#d04848';
+}
+
+function buildLimitZones(samples){
+  if (!samples.length || !M.stations.length) return null;
+  const stns = M.stations;
+  // Sort limit km values; insert implicit start at 0 with the first limit's
+  // mph (or 30 default) so the start of the route always has a colour.
+  const sorted = [...M.limits].map(l => ({ km: l._km ?? 0, mph: l.mph || 30 })).sort((a, b) => a.km - b.km);
+  if (!sorted.length || sorted[0].km > 0.05) sorted.unshift({ km: 0, mph: sorted[0]?.mph || 30 });
+  const g = el('g');
+  // Walk samples; for each segment between two samples, draw a coloured line.
+  let limIdx = 0;
+  let curMph = sorted[0].mph;
+  let prev = samples[0];
+  for (let i = 1; i < samples.length; i++){
+    while (limIdx + 1 < sorted.length && samples[i].km >= sorted[limIdx + 1].km){
+      limIdx++;
+      curMph = sorted[limIdx].mph;
+    }
+    const ln = el('line', { x1: prev.x, y1: -prev.y, x2: samples[i].x, y2: -samples[i].y, class: 'limitZone', stroke: limitColor(curMph) });
+    g.appendChild(ln);
+    prev = samples[i];
+  }
+  return g;
+}
+
+function snapFeatureToTrack(f, samples){
+  const n = nearestOnTrack(f.x, f.y, samples);
+  if (!n) return;
+  f._km = n.p.km;
+  // Snap to the track centreline so features always sit on the rails
+  f.x = n.p.x; f.y = n.p.y;
+}
+function snapLimitToTrack(l, samples){
+  const n = nearestOnTrack(l.x, l.y, samples);
+  if (!n) return;
+  l._km = n.p.km;
+  l.x = n.p.x; l.y = n.p.y;
+}
+
+// ============================================================
+// SIDEBAR
+// ============================================================
+function renderSidebar(){
+  // Meta inputs
+  $('m-key').value = M.meta.key;
+  $('m-name').value = M.meta.name;
+  $('m-displayName').value = M.meta.displayName;
+  $('m-service').value = M.meta.service;
+  $('m-biome').value = M.meta.biome;
+
+  // Selected props
+  const sel = findById(selectedId);
+  if (!sel){
+    propsEl.innerHTML = '<div class="none">Nothing selected. Click an item on the canvas, or use a + tool to add one.</div>';
+  } else {
+    propsEl.innerHTML = '';
+    if (sel.kind === 'station') renderStationProps(sel.obj);
+    else if (sel.kind === 'feature') renderFeatureProps(sel.obj);
+    else if (sel.kind === 'river') renderRiverProps(sel.obj);
+    else if (sel.kind === 'limit') renderLimitProps(sel.obj);
+  }
+
+  // Station list
+  stationListEl.innerHTML = '';
+  M.stations.forEach((s, i) => {
+    const li = document.createElement('li');
+    if (selectedId === s.id) li.className = 'selected';
+    const km = stationKm(i).toFixed(2);
+    li.innerHTML = `
+      <span class="num">${i + 1}</span>
+      <span class="nm" title="${s.name}">${escapeHtml(s.name)} <span style="color:rgba(180,210,235,0.45)">${km} km</span></span>
+      <button data-up="${s.id}" title="Move up">▲</button>
+      <button data-down="${s.id}" title="Move down">▼</button>
+      <button class="x" data-del="${s.id}" title="Delete">✕</button>
+    `;
+    li.querySelector('.nm').addEventListener('click', () => { selectedId = s.id; scheduleRender(); });
+    stationListEl.appendChild(li);
+  });
+  $('stationStats').textContent = M.stations.length + ' · ' + totalKm().toFixed(1) + ' km';
+}
+
+function renderStationProps(s){
+  const idx = M.stations.indexOf(s);
+  const km = stationKm(idx);
+  const cum = M.stations.slice(0, idx + 1).reduce((acc, st, i) => {
+    if (i === 0) return st.dwellSec || 0;
+    const segKm = Math.hypot(st.x - M.stations[i-1].x, st.y - M.stations[i-1].y) / 1000;
+    // Assume 60 mph average between stops for a rough schedule guess.
+    const travelS = (segKm / 60) * 3600;
+    return acc + travelS + (st.dwellSec || 0);
+  }, 0);
+  const wrap = document.createElement('div');
+  wrap.innerHTML = `
+    <label>Name <input data-bind="name" type="text" value="${attr(s.name)}"></label>
+    <div class="grid2">
+      <label>Code <input data-bind="code" type="text" value="${attr(s.code)}" maxlength="4"></label>
+      <label>Side <select data-bind="side">
+        <option value="L"${s.side==='L'?' selected':''}>Left</option>
+        <option value="R"${s.side==='R'?' selected':''}>Right</option>
+        <option value="I"${s.side==='I'?' selected':''}>Island</option>
+      </select></label>
+    </div>
+    <div class="grid2">
+      <label>Platform (m) <input data-bind="plat" type="number" min="40" max="400" value="${s.plat}"></label>
+      <label>Elev (m) <input data-bind="elev" type="number" min="0" max="500" value="${s.elev}"></label>
+    </div>
+    <div class="grid2">
+      <label>Dwell (s) <input data-bind="dwellSec" type="number" min="0" max="600" value="${s.dwellSec}"></label>
+      <label>Cum sched <input type="text" value="${fmtTime(cum)}" disabled></label>
+    </div>
+    <label>Position <span class="row">
+      <input data-bind="x" type="number" step="100" value="${Math.round(s.x)}">
+      <input data-bind="y" type="number" step="100" value="${Math.round(s.y)}">
+    </span></label>
+    <div style="margin-top:0.5rem;color:rgba(180,210,235,0.45);font-size:0.62rem;">Sequence #${idx+1} · ${km.toFixed(2)} km from start</div>
+    <button class="row danger" data-action="delete" style="margin-top:0.55rem;width:100%;">Delete station</button>
+  `;
+  bindInputs(wrap, s);
+  propsEl.appendChild(wrap);
+}
+
+function renderFeatureProps(f){
+  const wrap = document.createElement('div');
+  wrap.innerHTML = `
+    <label>Type <select data-bind="kind">
+      <option value="bridge"${f.kind==='bridge'?' selected':''}>Bridge</option>
+      <option value="tunnel"${f.kind==='tunnel'?' selected':''}>Tunnel</option>
+      <option value="viaduct"${f.kind==='viaduct'?' selected':''}>Viaduct</option>
+      <option value="mill"${f.kind==='mill'?' selected':''}>Mill</option>
+    </select></label>
+    ${f.kind === 'mill' ? `
+      <label>Side <select data-bind="side">
+        <option value="L"${f.side==='L'?' selected':''}>Left</option>
+        <option value="R"${f.side==='R'?' selected':''}>Right</option>
+      </select></label>
+    ` : `
+      <label>Length (m) <input data-bind="len" type="number" min="5" max="3000" value="${f.len || 30}"></label>
+    `}
+    <div style="margin-top:0.5rem;color:rgba(180,210,235,0.45);font-size:0.62rem;">Snapped to ${(f._km || 0).toFixed(2)} km</div>
+    <button class="row danger" data-action="delete" style="margin-top:0.55rem;width:100%;">Delete feature</button>
+  `;
+  bindInputs(wrap, f);
+  propsEl.appendChild(wrap);
+}
+
+function renderRiverProps(p){
+  const idx = M.riverPoints.indexOf(p);
+  const wrap = document.createElement('div');
+  wrap.innerHTML = `
+    <label>Position <span class="row">
+      <input data-bind="x" type="number" step="50" value="${Math.round(p.x)}">
+      <input data-bind="y" type="number" step="50" value="${Math.round(p.y)}">
+    </span></label>
+    <div style="color:rgba(180,210,235,0.45);font-size:0.62rem;margin-top:0.4rem;">River point #${idx+1} · ${M.riverPoints.length} total</div>
+    <button class="row danger" data-action="delete" style="margin-top:0.55rem;width:100%;">Delete point</button>
+  `;
+  bindInputs(wrap, p);
+  propsEl.appendChild(wrap);
+}
+
+function renderLimitProps(l){
+  const wrap = document.createElement('div');
+  wrap.innerHTML = `
+    <label>Speed (mph) <input data-bind="mph" type="number" min="5" max="125" value="${l.mph}"></label>
+    <div style="color:rgba(180,210,235,0.45);font-size:0.62rem;margin-top:0.4rem;">Snapped to ${(l._km || 0).toFixed(2)} km</div>
+    <button class="row danger" data-action="delete" style="margin-top:0.55rem;width:100%;">Delete limit</button>
+  `;
+  bindInputs(wrap, l);
+  propsEl.appendChild(wrap);
+}
+
+function bindInputs(root, obj){
+  root.querySelectorAll('[data-bind]').forEach(inp => {
+    inp.addEventListener('input', () => {
+      const key = inp.dataset.bind;
+      let v = inp.value;
+      if (inp.type === 'number') v = v === '' ? 0 : Number(v);
+      obj[key] = v;
+      scheduleRender();
+    });
+  });
+  const del = root.querySelector('[data-action="delete"]');
+  if (del) del.addEventListener('click', deleteSelected);
+}
+
+function findById(id){
+  if (!id) return null;
+  for (const s of M.stations) if (s.id === id) return { kind: 'station', obj: s };
+  for (const f of M.features) if (f.id === id) return { kind: 'feature', obj: f };
+  for (const p of M.riverPoints) if (p.id === id) return { kind: 'river', obj: p };
+  for (const l of M.limits) if (l.id === id) return { kind: 'limit', obj: l };
+  return null;
+}
+
+function deleteSelected(){
+  const sel = findById(selectedId);
+  if (!sel) return;
+  if (sel.kind === 'station') M.stations = M.stations.filter(s => s.id !== selectedId);
+  else if (sel.kind === 'feature') M.features = M.features.filter(f => f.id !== selectedId);
+  else if (sel.kind === 'river') M.riverPoints = M.riverPoints.filter(p => p.id !== selectedId);
+  else if (sel.kind === 'limit') M.limits = M.limits.filter(l => l.id !== selectedId);
+  selectedId = null;
+  scheduleRender();
+}
+
+function attr(s){ return String(s == null ? '' : s).replace(/"/g, '&quot;'); }
+function escapeHtml(s){ return String(s == null ? '' : s).replace(/[&<>]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c])); }
+
+function renderStatus(){
+  setStatus(`${M.stations.length} stns · ${M.features.length} features · ${M.riverPoints.length} river pts · ${M.limits.length} limits · ${totalKm().toFixed(2)} km`);
+}
+
+// ============================================================
+// TOOL HANDLING + CANVAS EVENTS
+// ============================================================
+function setTool(t){
+  tool = t;
+  document.querySelectorAll('#toolbar [data-tool]').forEach(b => {
+    b.classList.toggle('active', b.dataset.tool === t);
+  });
+  svg.classList.toggle('tooling', t !== 'select');
+}
+
+document.querySelectorAll('#toolbar [data-tool]').forEach(b => {
+  b.addEventListener('click', () => setTool(b.dataset.tool));
+});
+
+function addStation(x, y){
+  const idx = M.stations.length;
+  const s = {
+    id: uid('st'),
+    x, y,
+    name: 'Station ' + (idx + 1),
+    code: 'S' + String(idx + 1).padStart(2, '0'),
+    plat: 100,
+    side: 'L',
+    elev: 80,
+    dwellSec: 30,
+  };
+  M.stations.push(s);
+  selectedId = s.id;
+  setTool('select');
+  msg('Added ' + s.name, 'ok');
+}
+function addFeature(kind, x, y){
+  const f = { id: uid('ft'), kind, x, y, len: kind === 'mill' ? null : (kind === 'tunnel' ? 400 : kind === 'viaduct' ? 80 : 30), side: kind === 'mill' ? 'L' : null };
+  M.features.push(f);
+  selectedId = f.id;
+  setTool('select');
+  msg('Added ' + kind, 'ok');
+}
+function addRiverPoint(x, y){
+  const p = { id: uid('rv'), x, y };
+  M.riverPoints.push(p);
+  selectedId = p.id;
+  // Stay in river tool so the user can keep clicking to extend the line.
+  msg('River point added — click again to extend, Esc / Select to stop', 'info');
+}
+function addLimit(x, y, mph){
+  const l = { id: uid('lim'), x, y, mph: mph ?? 60 };
+  M.limits.push(l);
+  selectedId = l.id;
+  setTool('select');
+  msg('Added speed limit', 'ok');
+}
+
+// Pointer events on the canvas
+svg.addEventListener('pointerdown', ev => {
+  const targetId = ev.target?.dataset?.id;
+  // Click on an existing element: select + start drag (in select mode)
+  if (targetId){
+    selectedId = targetId;
+    if (tool === 'select'){
+      const obj = findById(targetId).obj;
+      const w = clientToWorld(ev.clientX, ev.clientY);
+      interaction = { kind: 'drag', id: targetId, dx: obj.x - w.x, dy: obj.y - w.y };
+      svg.setPointerCapture(ev.pointerId);
+      svg.classList.add('dragging');
+    }
+    scheduleRender();
+    return;
+  }
+  // Background click
+  const w = clientToWorld(ev.clientX, ev.clientY);
+  if (tool === 'select'){
+    selectedId = null;
+    interaction = { kind: 'pan', x0: ev.clientX, y0: ev.clientY, vx0: viewBox.x, vy0: viewBox.y };
+    svg.setPointerCapture(ev.pointerId);
+    svg.classList.add('dragging');
+    scheduleRender();
+    return;
+  }
+  // Tool placement
+  if (tool === 'station') addStation(w.x, w.y);
+  else if (tool === 'river') addRiverPoint(w.x, w.y);
+  else if (tool === 'limit'){
+    if (M.stations.length < 2){ msg('Add at least two stations first', 'err'); setTool('select'); return; }
+    addLimit(w.x, w.y);
+  } else if (['bridge','tunnel','viaduct','mill'].includes(tool)){
+    if (M.stations.length < 2 && tool !== 'mill'){ msg('Add at least two stations first', 'err'); setTool('select'); return; }
+    addFeature(tool, w.x, w.y);
+  }
+  scheduleRender();
+});
+
+svg.addEventListener('pointermove', ev => {
+  const w = clientToWorld(ev.clientX, ev.clientY);
+  coordsEl.textContent = `${w.x.toFixed(0)} m, ${w.y.toFixed(0)} m`;
+  if (!interaction) return;
+  if (interaction.kind === 'pan'){
+    const rate = viewBox.w / svg.getBoundingClientRect().width;
+    const dx = (ev.clientX - interaction.x0) * rate;
+    const dy = (ev.clientY - interaction.y0) * rate;
+    viewBox.x = interaction.vx0 - dx;
+    viewBox.y = interaction.vy0 - dy;
+    applyViewBox();
+  } else if (interaction.kind === 'drag'){
+    const obj = findById(interaction.id)?.obj;
+    if (!obj) return;
+    obj.x = w.x + interaction.dx;
+    obj.y = w.y + interaction.dy;
+    scheduleRender();
+  }
+});
+
+svg.addEventListener('pointerup', ev => {
+  if (interaction){
+    svg.releasePointerCapture(ev.pointerId);
+    svg.classList.remove('dragging');
+  }
+  interaction = null;
+});
+
+svg.addEventListener('wheel', ev => {
+  ev.preventDefault();
+  const factor = ev.deltaY > 0 ? 1.18 : 0.847;
+  const w = clientToWorld(ev.clientX, ev.clientY);
+  viewBox.w *= factor;
+  viewBox.h *= factor;
+  // Re-anchor so the cursor stays over the same world point.
+  // After zoom, new viewBox so that clientToWorld(ev.clientX, ev.clientY) == w.
+  const r = svg.getBoundingClientRect();
+  const nx = (ev.clientX - r.left) / r.width;
+  const ny = (ev.clientY - r.top) / r.height;
+  viewBox.x = w.x - nx * viewBox.w;
+  viewBox.y = -w.y - ny * viewBox.h;
+  scheduleRender();
+}, { passive: false });
+
+window.addEventListener('keydown', ev => {
+  if (ev.target.tagName === 'INPUT' || ev.target.tagName === 'TEXTAREA' || ev.target.tagName === 'SELECT') return;
+  if (ev.key === 'Escape'){ setTool('select'); selectedId = null; scheduleRender(); }
+  else if (ev.key === 'Delete' || ev.key === 'Backspace'){ if (selectedId) deleteSelected(); }
+  else if (ev.key === 'f' || ev.key === 'F'){ zoomToFit(); }
+});
+
+// Station list reorder + delete
+stationListEl.addEventListener('click', ev => {
+  const up = ev.target.closest('[data-up]')?.dataset.up;
+  const dn = ev.target.closest('[data-down]')?.dataset.down;
+  const del = ev.target.closest('[data-del]')?.dataset.del;
+  if (up){
+    const i = M.stations.findIndex(s => s.id === up);
+    if (i > 0){ [M.stations[i-1], M.stations[i]] = [M.stations[i], M.stations[i-1]]; scheduleRender(); }
+  } else if (dn){
+    const i = M.stations.findIndex(s => s.id === dn);
+    if (i >= 0 && i < M.stations.length - 1){ [M.stations[i+1], M.stations[i]] = [M.stations[i], M.stations[i+1]]; scheduleRender(); }
+  } else if (del){
+    selectedId = del; deleteSelected();
+  }
+});
+
+// Meta inputs
+['key','name','displayName','service','biome'].forEach(k => {
+  $('m-' + k).addEventListener('input', e => { M.meta[k] = e.target.value; scheduleRender(); });
+});
+
+// ============================================================
+// ZOOM HELPERS
+// ============================================================
+function zoomToFit(){
+  // Collect all world points, compute bounding box, pad 10%.
+  const pts = [
+    ...M.stations.map(s => ({x:s.x,y:s.y})),
+    ...M.features.map(f => ({x:f.x,y:f.y})),
+    ...M.riverPoints.map(p => ({x:p.x,y:p.y})),
+    ...M.limits.map(l => ({x:l.x,y:l.y})),
+  ];
+  if (!pts.length){ viewBox = { ...DEFAULT_ZOOM }; scheduleRender(); return; }
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const p of pts){ minX = Math.min(minX,p.x); maxX = Math.max(maxX,p.x); minY = Math.min(minY,p.y); maxY = Math.max(maxY,p.y); }
+  const w = Math.max(maxX - minX, 4000) * 1.25;
+  const h = Math.max(maxY - minY, 4000) * 1.25;
+  const cx = (minX + maxX) / 2, cy = (minY + maxY) / 2;
+  // Pick the larger ratio so everything fits.
+  const r = svg.getBoundingClientRect();
+  const aspect = r.width / r.height;
+  let vw = w, vh = h;
+  if (vw / vh > aspect) vh = vw / aspect; else vw = vh * aspect;
+  viewBox = { x: cx - vw/2, y: -cy - vh/2, w: vw, h: vh };
+  scheduleRender();
+}
+$('btnZoomFit').addEventListener('click', zoomToFit);
+
+// ============================================================
+// EXPORT — produce a JSON object matching the sim's loader schema.
+// ============================================================
+function buildExport(){
+  if (M.stations.length < 2) return { ok: false, error: 'Need at least 2 stations to export.' };
+  const samples = sampleTrack();
+  // Stations with derived km + synthetic lat/lon
+  const stations = M.stations.map((s, i) => ({
+    km: +stationKm(i).toFixed(3),
+    name: s.name || ('Station ' + (i+1)),
+    code: (s.code || ('S' + String(i+1).padStart(2,'0'))).toUpperCase().slice(0,4),
+    plat: clamp(int(s.plat), 40, 400),
+    side: ['L','R','I'].includes(s.side) ? s.side : 'L',
+    elev: clamp(int(s.elev), 0, 500),
+    lat: +(LEEDS_LAT + s.y / LAT_TO_M).toFixed(6),
+    lon: +(LEEDS_LON + s.x / LON_TO_M).toFixed(6),
+  }));
+  // Schedule: cumulative seconds. Default travel time ~60 mph between stops,
+  // plus per-station dwellSec. Schedule[0] starts at 0; dwell at first
+  // station is treated as "before-departure" but for the sim's schedule
+  // (cumulative arrivals) we use a single timeline.
+  const schedule = [0];
+  for (let i = 1; i < M.stations.length; i++){
+    const segKm = stationKm(i) - stationKm(i-1);
+    const travelS = (segKm / 60) * 3600;
+    const prevDwell = M.stations[i-1].dwellSec || 0;
+    schedule.push(Math.round(schedule[i-1] + prevDwell + travelS));
+  }
+  // Limits — sort by km, ensure km=0 entry. Use snapped _km values.
+  const limitsRaw = M.limits.map(l => ({ km: +(l._km || 0).toFixed(2), mph: clamp(int(l.mph), 5, 125) }));
+  limitsRaw.sort((a, b) => a.km - b.km);
+  if (!limitsRaw.length || limitsRaw[0].km > 0.05) limitsRaw.unshift({ km: 0, mph: limitsRaw[0]?.mph || 30 });
+  // Features — sort by km
+  const features = M.features.map(f => {
+    const e = { km: +(f._km || 0).toFixed(2), type: f.kind };
+    if (f.kind === 'mill') e.side = f.side || 'L';
+    else if (f.len) e.len = clamp(int(f.len), 5, 3000);
+    return e;
+  }).sort((a, b) => a.km - b.km);
+  // River — convert each river point to {km, lateral-metres}
+  const riverPath = M.riverPoints.map(p => {
+    const lo = lateralOffset(p.x, p.y, samples);
+    return { km: +lo.km.toFixed(2), lat: Math.round(lo.lateral) };
+  });
+  // Final
+  const out = {
+    version: 1,
+    key: M.meta.key || 'my-line',
+    name: M.meta.name || 'My Line',
+    displayName: (M.meta.displayName || M.meta.name || 'MY LINE').toUpperCase(),
+    subtitle: stations[0].name + ' → ' + stations[stations.length-1].name + ' — ' + totalKm().toFixed(1) + ' km · ' + stations.length + ' stations',
+    biome: M.meta.biome || 'countryside',
+    service: M.meta.service || '2X42 ' + stations[0].code + ' → ' + stations[stations.length-1].code,
+    totalKm: +totalKm().toFixed(2),
+    stations,
+    schedule,
+    limits: limitsRaw,
+    features,
+    riverPath,
+    shapePoints: [],
+  };
+  return { ok: true, json: out };
+}
+function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
+function int(v){ return v | 0; }
+
+$('btnSave').addEventListener('click', () => {
+  const r = buildExport();
+  if (!r.ok){ msg(r.error, 'err'); return; }
+  const blob = new Blob([JSON.stringify(r.json, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = (M.meta.key || 'my-line') + '.json';
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  msg('Saved ' + a.download, 'ok');
+});
+
+// ============================================================
+// IMPORT — accept a sim-shaped JSON and rebuild editor state.
+// ============================================================
+$('btnOpen').addEventListener('click', () => $('openFile').click());
+$('openFile').addEventListener('change', async ev => {
+  const file = ev.target.files?.[0]; if (!file) return;
+  try {
+    const text = await file.text();
+    const json = JSON.parse(text);
+    importMap(json);
+    msg('Opened ' + file.name, 'ok');
+  } catch (e){ msg('Parse failed: ' + e.message, 'err'); }
+  ev.target.value = '';
+});
+
+function importMap(json){
+  if (!json || typeof json !== 'object') throw new Error('not an object');
+  M.meta.key = json.key || 'my-line';
+  M.meta.name = json.name || 'My Line';
+  M.meta.displayName = json.displayName || (M.meta.name || '').toUpperCase();
+  M.meta.biome = json.biome || 'countryside';
+  M.meta.service = json.service || '';
+  // Stations: invert lat/lon to (x, y) world metres using the same equi-
+  // rectangular projection about Leeds the editor uses on export.
+  M.stations = (json.stations || []).map((s, i) => ({
+    id: uid('st'),
+    x: (s.lon - LEEDS_LON) * LON_TO_M,
+    y: (s.lat - LEEDS_LAT) * LAT_TO_M,
+    name: s.name || ('Station ' + (i+1)),
+    code: s.code || '',
+    plat: s.plat || 100,
+    side: s.side || 'L',
+    elev: s.elev || 0,
+    dwellSec: 30,
+  }));
+  // Derive per-station dwell from schedule + chord-distance travel guesses.
+  if (Array.isArray(json.schedule) && json.schedule.length === M.stations.length){
+    for (let i = 1; i < M.stations.length; i++){
+      const segKm = Math.hypot(M.stations[i].x - M.stations[i-1].x, M.stations[i].y - M.stations[i-1].y) / 1000;
+      const travelS = (segKm / 60) * 3600;
+      const dwell = Math.max(0, Math.round((json.schedule[i] - json.schedule[i-1]) - travelS));
+      M.stations[i-1].dwellSec = dwell;
+    }
+  }
+  // Features — place at the (x, y) of the nearest track point at the given km.
+  const samples = sampleTrack();
+  M.features = (json.features || []).map(f => {
+    const p = trackPointAtKm(f.km, samples);
+    return { id: uid('ft'), kind: f.type || 'bridge', x: p.x, y: p.y, len: f.len || null, side: f.side || null, _km: f.km };
+  });
+  // River points — at the (x, y) of (track km + lateral offset).
+  M.riverPoints = (json.riverPath || []).map(rp => {
+    const p = trackPointAtKm(rp.km, samples);
+    if (!p) return null;
+    // Tangent + right-perpendicular
+    const tlen = Math.hypot(p.tx, p.ty) || 1;
+    const rx = p.ty / tlen, ry = -p.tx / tlen;
+    return { id: uid('rv'), x: p.x + rx * (rp.lat || 0), y: p.y + ry * (rp.lat || 0) };
+  }).filter(Boolean);
+  // Limits — at the (x, y) of the nearest track point at that km.
+  M.limits = (json.limits || []).map(l => {
+    const p = trackPointAtKm(l.km, samples);
+    return { id: uid('lim'), x: p.x, y: p.y, mph: l.mph, _km: l.km };
+  });
+  selectedId = null;
+  zoomToFit();
+}
+function trackPointAtKm(km, samples){
+  if (!samples?.length) return { x: 0, y: 0, tx: 1, ty: 0 };
+  // Binary search would be nicer; linear is fine at this scale.
+  let best = samples[0], bestD = Infinity;
+  for (const s of samples){ const d = Math.abs(s.km - km); if (d < bestD){ bestD = d; best = s; } }
+  return best;
+}
+
+// ============================================================
+// NEW / LOCALSTORAGE
+// ============================================================
+$('btnNew').addEventListener('click', () => {
+  if (M.stations.length && !confirm('Discard current line?')) return;
+  Object.assign(M, {
+    meta: { key: 'my-line', name: 'My Line', displayName: 'MY LINE', biome: 'countryside', service: '2X42 START → END' },
+    stations: [], features: [], riverPoints: [], limits: [],
+  });
+  selectedId = null;
+  viewBox = { ...DEFAULT_ZOOM };
+  scheduleRender();
+  msg('New line', 'info');
+});
+
+function saveLocal(){
+  try {
+    const payload = { meta: M.meta, stations: M.stations, features: M.features, riverPoints: M.riverPoints, limits: M.limits, viewBox };
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+  } catch (e){ /* quota or private mode — silent */ }
+}
+function restoreLocal(){
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return false;
+    const payload = JSON.parse(raw);
+    if (!payload?.stations) return false;
+    Object.assign(M, { meta: payload.meta || M.meta, stations: payload.stations, features: payload.features || [], riverPoints: payload.riverPoints || [], limits: payload.limits || [] });
+    if (payload.viewBox) viewBox = payload.viewBox;
+    // Re-assign ids so the running counter doesn't reuse them. (Existing ids
+    // stay, we just bump nextId past the highest numeric tail.)
+    const all = [...M.stations, ...M.features, ...M.riverPoints, ...M.limits];
+    let high = 0;
+    for (const it of all){
+      const m = /-(\d+)$/.exec(it.id || '');
+      if (m) high = Math.max(high, parseInt(m[1], 10));
+    }
+    nextId = high + 1;
+    return true;
+  } catch (e){ return false; }
+}
+
+// ============================================================
+// BOOT
+// ============================================================
+window.SIM_EDITOR = { M, render, importMap, buildExport, setTool, get viewBox(){return viewBox;} };
+
+const restored = restoreLocal();
+if (!restored){
+  // Seed with two stations so the user sees the canvas reading correctly.
+  addStation(0, 0); selectedId = null;
+  addStation(8000, 1500); selectedId = null;
+}
+setTool('select');
+render();
+msg(restored ? 'Restored from previous session' : 'New line · click "+ Station" to add stops', 'info');
+</script>
+</body>
+</html>
