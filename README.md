@@ -14,7 +14,7 @@ work; exporting produces a JSON file that drops straight into the sim via its
 
 | Tool | What it does |
 |------|--------------|
-| **＋ Station** | Drag onto the canvas. Auto-numbered along the route in placement order. Editable name, code, platform length, side (Left / Right / Island) and elevation in the sidebar. |
+| **＋ Station** | Drag onto the canvas. Auto-numbered along the route in placement order. Editable name, code, platform length, side (Left / Right / Island), elevation, **station type** (Halt / Station / Terminus / Junction) and **platform count** (1–6) in the sidebar. Halts skip the canopy in the sim; platform counts above 2 add extra "wing" platform slabs further out laterally. |
 | **＋ Bridge / Tunnel / Viaduct / Mill** | Drag onto the canvas. Snaps to the nearest point on the track. Length and (for mills) side editable. |
 | **＋ River pt** | Click to extend a polyline that becomes the river. The exporter converts each point to a `{km, lateral-offset-metres}` pair against the track. |
 | **＋ Limit** | Drop a speed-limit marker onto the track. Default 60 mph, editable in the sidebar. The route colours itself along the curve by the active limit (green ≥60, amber 40–60, orange 25–40, red <25). |

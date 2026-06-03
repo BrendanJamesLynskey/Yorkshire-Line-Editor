@@ -554,6 +554,11 @@ function renderStationProps(s){
     const travelS = (segKm / 60) * 3600;
     return acc + travelS + (st.dwellSec || 0);
   }, 0);
+  // Defaults for legacy stations created before platforms / type were
+  // added to the schema. Display the resolved value so the user can see
+  // what the export will carry even if they never touch the fields.
+  const platforms = s.platforms || (s.side === 'I' ? 2 : 1);
+  const stype = s.type || 'station';
   const wrap = document.createElement('div');
   wrap.innerHTML = `
     <label>Name <input data-bind="name" type="text" value="${attr(s.name)}"></label>
@@ -564,6 +569,15 @@ function renderStationProps(s){
         <option value="R"${s.side==='R'?' selected':''}>Right</option>
         <option value="I"${s.side==='I'?' selected':''}>Island</option>
       </select></label>
+    </div>
+    <div class="grid2">
+      <label>Type <select data-bind="type">
+        <option value="halt"${stype==='halt'?' selected':''}>Halt (no canopy)</option>
+        <option value="station"${stype==='station'?' selected':''}>Station</option>
+        <option value="terminus"${stype==='terminus'?' selected':''}>Terminus</option>
+        <option value="junction"${stype==='junction'?' selected':''}>Junction</option>
+      </select></label>
+      <label>Platforms <input data-bind="platforms" type="number" min="1" max="6" value="${platforms}"></label>
     </div>
     <div class="grid2">
       <label>Platform (m) <input data-bind="plat" type="number" min="40" max="400" value="${s.plat}"></label>
@@ -699,6 +713,8 @@ function addStation(x, y){
     code: 'S' + String(idx + 1).padStart(2, '0'),
     plat: 100,
     side: 'L',
+    platforms: 1,         // 1..6 platform faces
+    type: 'station',      // 'halt' | 'station' | 'terminus' | 'junction'
     elev: 80,
     dwellSec: 30,
   };
@@ -873,17 +889,31 @@ $('btnZoomFit').addEventListener('click', zoomToFit);
 function buildExport(){
   if (M.stations.length < 2) return { ok: false, error: 'Need at least 2 stations to export.' };
   const samples = sampleTrack();
-  // Stations with derived km + synthetic lat/lon
-  const stations = M.stations.map((s, i) => ({
-    km: +stationKm(i).toFixed(3),
-    name: s.name || ('Station ' + (i+1)),
-    code: (s.code || ('S' + String(i+1).padStart(2,'0'))).toUpperCase().slice(0,4),
-    plat: clamp(int(s.plat), 40, 400),
-    side: ['L','R','I'].includes(s.side) ? s.side : 'L',
-    elev: clamp(int(s.elev), 0, 500),
-    lat: +(LEEDS_LAT + s.y / LAT_TO_M).toFixed(6),
-    lon: +(LEEDS_LON + s.x / LON_TO_M).toFixed(6),
-  }));
+  // Stations with derived km + synthetic lat/lon. The platforms / type
+  // fields are only included when they differ from the implicit defaults
+  // (platforms = 1, type = 'station'), so JSON for plain stations stays
+  // visually identical to the v1 sample-line format.
+  const stations = M.stations.map((s, i) => {
+    const stype = String(s.type || 'station').toLowerCase();
+    const platforms = clamp(int(s.platforms || (s.side === 'I' ? 2 : 1)), 1, 6);
+    const entry = {
+      km: +stationKm(i).toFixed(3),
+      name: s.name || ('Station ' + (i+1)),
+      code: (s.code || ('S' + String(i+1).padStart(2,'0'))).toUpperCase().slice(0,4),
+      plat: clamp(int(s.plat), 40, 400),
+      side: ['L','R','I'].includes(s.side) ? s.side : 'L',
+      elev: clamp(int(s.elev), 0, 500),
+      lat: +(LEEDS_LAT + s.y / LAT_TO_M).toFixed(6),
+      lon: +(LEEDS_LON + s.x / LON_TO_M).toFixed(6),
+    };
+    // Only emit platforms when explicitly customised — the sim's loader
+    // derives the same default for omitted values, so plain 1-platform L/R
+    // stations stay terse in the JSON.
+    const implicitPlatforms = (entry.side === 'I' ? 2 : 1);
+    if (platforms !== implicitPlatforms) entry.platforms = platforms;
+    if (stype !== 'station') entry.type = stype;
+    return entry;
+  });
   // Schedule: cumulative seconds. Default travel time ~60 mph between stops,
   // plus per-station dwellSec. Schedule[0] starts at 0; dwell at first
   // station is treated as "before-departure" but for the sim's schedule
@@ -978,6 +1008,8 @@ function importMap(json){
     code: s.code || '',
     plat: s.plat || 100,
     side: s.side || 'L',
+    platforms: s.platforms || (s.side === 'I' ? 2 : 1),
+    type: String(s.type || 'station').toLowerCase(),
     elev: s.elev || 0,
     dwellSec: 30,
   }));
