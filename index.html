@@ -80,6 +80,7 @@ button,input,select,textarea{font:inherit;color:inherit;}
 .limitZone{fill:none;stroke-width:10px;vector-effect:non-scaling-stroke;stroke-linecap:butt;opacity:0.55;pointer-events:none;}
 .river{fill:none;stroke:#4090c8;stroke-width:6px;vector-effect:non-scaling-stroke;stroke-linecap:round;stroke-linejoin:round;opacity:0.85;pointer-events:none;}
 .rubberBand{stroke:#9cff9c;stroke-width:3px;stroke-dasharray:180,140;stroke-linecap:round;vector-effect:non-scaling-stroke;opacity:0.85;pointer-events:none;}
+.edge{fill:none;stroke:#9cff9c;stroke-width:4px;vector-effect:non-scaling-stroke;stroke-linecap:round;opacity:0.78;pointer-events:none;}
 .station{fill:#fff;stroke:#5cc8ff;stroke-width:3px;vector-effect:non-scaling-stroke;cursor:pointer;}
 .station.selected{stroke:#ffaa66;stroke-width:5px;}
 .station.trackFrom{stroke:#9cff9c;stroke-width:6px;filter:drop-shadow(0 0 6px rgba(140,255,140,0.55));}
@@ -185,6 +186,10 @@ const M = {
   features: [],     // {id, kind, x, y, len, side}
   riverPoints: [],  // {id, x, y}
   limits: [],       // {id, x, y, mph}  (x,y derived/snapped to track)
+  // Track tool draws explicit edges between station pairs ON TOP of the
+  // implicit Catmull-Rom curve through the stations array. Edges are
+  // additive — they never reorder M.stations and never delete anything.
+  edges: [],        // [{ id, from, to }]
 };
 
 // Default start limit at km 0 is implicit at export time.
@@ -391,6 +396,29 @@ function render(){
   // Speed-limit markers
   for (const l of M.limits){
     svg.appendChild(buildLimitMark(l));
+  }
+  // Explicit edges drawn by the Track tool — overlaid on the implicit
+  // Catmull-Rom curve as additional smooth arcs in a distinct green so the
+  // user can see which pairs they've connected without altering the
+  // underlying route order.
+  for (const e of M.edges){
+    const a = M.stations.find(s => s.id === e.from);
+    const b = M.stations.find(s => s.id === e.to);
+    if (!a || !b) continue;
+    // Quadratic Bézier with a bowed-out midpoint so adjacent edges between
+    // the same pair don't visually merge with the implicit track.
+    const mx = (a.x + b.x) / 2;
+    const my = -(a.y + b.y) / 2;
+    const dx = b.x - a.x, dy = b.y - a.y;
+    const len = Math.hypot(dx, dy) || 1;
+    // Bow perpendicular to the AB segment by ~12% of its length.
+    const px = -dy / len, py = dx / len;
+    const bow = len * 0.12;
+    const cx = mx + px * bow, cy = my + py * bow;
+    svg.appendChild(el('path', {
+      d: `M ${a.x} ${-a.y} Q ${cx} ${cy} ${b.x} ${-b.y}`,
+      class: 'edge',
+    }));
   }
   // Stations on top
   for (let i = 0; i < M.stations.length; i++){
@@ -834,53 +862,30 @@ function handleTrackClick(stnId){
 // Move the `toId` station to immediately follow `fromId` in the route array.
 // The Catmull-Rom track is computed from M.stations in array order, so
 // reordering is all that's needed to make the two stations directly adjacent.
+// Track tool — adds an explicit edge between two stations as an additional
+// curve drawn ON TOP of the implicit Catmull-Rom track through M.stations.
+// M.stations is never reordered, so no rendered piece of the existing
+// track ever vanishes. Edges that already exist between this pair (in
+// either direction) are not duplicated.
 function connectStations(fromId, toId){
   if (fromId === toId) return;
-  const beforeCount = M.stations.length;
-  const fromIdxBefore = M.stations.findIndex(s => s.id === fromId);
-  const toIdxBefore   = M.stations.findIndex(s => s.id === toId);
-  if (fromIdxBefore < 0 || toIdxBefore < 0) return;
-  // Stations strictly between source and target in the current array order
-  // (in either direction). These were "in front" of one of the clicked
-  // stations and otherwise would have been displaced to weird positions.
-  // We MOVE them — never delete — to immediately after the target so the
-  // route still flows through them, just in a re-stitched order.
-  const lo = Math.min(fromIdxBefore, toIdxBefore);
-  const hi = Math.max(fromIdxBefore, toIdxBefore);
-  const between = M.stations.slice(lo + 1, hi).map(s => s.id);
-  // Splice the target out, then the in-between stations out (right-to-left
-  // so indices stay valid), then splice them all back in directly after the
-  // source: target first, then the previously-between stations in their
-  // original order.
-  const toIdx = M.stations.findIndex(s => s.id === toId);
-  const [movedTo] = M.stations.splice(toIdx, 1);
-  const movedBetween = [];
-  for (let i = between.length - 1; i >= 0; i--){
-    const idx = M.stations.findIndex(s => s.id === between[i]);
-    if (idx >= 0) movedBetween.unshift(...M.stations.splice(idx, 1));
-  }
-  const fromIdx = M.stations.findIndex(s => s.id === fromId);
-  if (fromIdx < 0){
-    // Source disappeared (shouldn't happen) — restore everything in place.
-    M.stations.splice(toIdx, 0, movedTo, ...movedBetween);
+  if (M.stations.findIndex(s => s.id === fromId) < 0) return;
+  if (M.stations.findIndex(s => s.id === toId) < 0) return;
+  const duplicate = M.edges.find(e =>
+    (e.from === fromId && e.to === toId) || (e.from === toId && e.to === fromId)
+  );
+  if (duplicate){
+    const sa = M.stations.find(s => s.id === fromId);
+    const sb = M.stations.find(s => s.id === toId);
+    msg(`"${sa.name}" and "${sb.name}" are already connected`, 'info');
     return;
   }
-  M.stations.splice(fromIdx + 1, 0, movedTo, ...movedBetween);
-  // Defensive: confirm we didn't lose any station. If counts diverge, log
-  // loudly so a regression can be caught.
-  if (M.stations.length !== beforeCount){
-    console.error('connectStations: station count changed from ' + beforeCount + ' to ' + M.stations.length);
-  }
-  // Status message names the route in full so it's visually clear that
-  // every station is still present — just in a re-stitched order. Long
-  // routes get truncated with an ellipsis.
-  justMovedIds = new Set([movedTo.id, ...movedBetween.map(s => s.id)]);
+  M.edges.push({ id: uid('ed'), from: fromId, to: toId });
+  const sa = M.stations.find(s => s.id === fromId);
+  const sb = M.stations.find(s => s.id === toId);
+  justMovedIds = new Set([fromId, toId]);
   setTimeout(() => { justMovedIds.clear(); scheduleRender(); }, 1600);
-  const names = M.stations.map(s => s.name);
-  const route = names.length > 8
-    ? names.slice(0, 4).join(' → ') + ' … ' + names.slice(-3).join(' → ')
-    : names.join(' → ');
-  msg(`Connected "${M.stations[fromIdx].name}" → "${movedTo.name}". Route: ${route}`, 'ok');
+  msg(`Connected "${sa.name}" → "${sb.name}" — ${M.edges.length} edge${M.edges.length === 1 ? '' : 's'} drawn`, 'ok');
 }
 
 // Pointer events on the canvas
@@ -1156,6 +1161,9 @@ function importMap(json){
   M.meta.displayName = json.displayName || (M.meta.name || '').toUpperCase();
   M.meta.biome = json.biome || 'countryside';
   M.meta.service = json.service || '';
+  // Edges are editor-only and don't survive a round-trip through the sim
+  // schema; drop any from a previous session.
+  M.edges = [];
   // Stations: invert lat/lon to (x, y) world metres using the same equi-
   // rectangular projection about Leeds the editor uses on export.
   M.stations = (json.stations || []).map((s, i) => ({
@@ -1220,7 +1228,7 @@ $('btnNew').addEventListener('click', () => {
   if (M.stations.length && !confirm('Discard current line?')) return;
   Object.assign(M, {
     meta: { key: 'my-line', name: 'My Line', displayName: 'MY LINE', biome: 'countryside', service: '2X42 START → END' },
-    stations: [], features: [], riverPoints: [], limits: [],
+    stations: [], features: [], riverPoints: [], limits: [], edges: [],
   });
   selectedId = null;
   viewBox = { ...DEFAULT_ZOOM };
@@ -1230,7 +1238,7 @@ $('btnNew').addEventListener('click', () => {
 
 function saveLocal(){
   try {
-    const payload = { meta: M.meta, stations: M.stations, features: M.features, riverPoints: M.riverPoints, limits: M.limits, viewBox };
+    const payload = { meta: M.meta, stations: M.stations, features: M.features, riverPoints: M.riverPoints, limits: M.limits, edges: M.edges, viewBox };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   } catch (e){ /* quota or private mode — silent */ }
 }
@@ -1240,11 +1248,11 @@ function restoreLocal(){
     if (!raw) return false;
     const payload = JSON.parse(raw);
     if (!payload?.stations) return false;
-    Object.assign(M, { meta: payload.meta || M.meta, stations: payload.stations, features: payload.features || [], riverPoints: payload.riverPoints || [], limits: payload.limits || [] });
+    Object.assign(M, { meta: payload.meta || M.meta, stations: payload.stations, features: payload.features || [], riverPoints: payload.riverPoints || [], limits: payload.limits || [], edges: payload.edges || [] });
     if (payload.viewBox) viewBox = payload.viewBox;
     // Re-assign ids so the running counter doesn't reuse them. (Existing ids
     // stay, we just bump nextId past the highest numeric tail.)
-    const all = [...M.stations, ...M.features, ...M.riverPoints, ...M.limits];
+    const all = [...M.stations, ...M.features, ...M.riverPoints, ...M.limits, ...M.edges];
     let high = 0;
     for (const it of all){
       const m = /-(\d+)$/.exec(it.id || '');
