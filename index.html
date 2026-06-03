@@ -559,6 +559,7 @@ function renderStationProps(s){
   // what the export will carry even if they never touch the fields.
   const platforms = s.platforms || (s.side === 'I' ? 2 : 1);
   const stype = s.type || 'station';
+  const sstyle = s.style || 'modern';
   const wrap = document.createElement('div');
   wrap.innerHTML = `
     <label>Name <input data-bind="name" type="text" value="${attr(s.name)}"></label>
@@ -579,6 +580,11 @@ function renderStationProps(s){
       </select></label>
       <label>Platforms <input data-bind="platforms" type="number" min="1" max="6" value="${platforms}"></label>
     </div>
+    <label>Style <select data-bind="style">
+      <option value="modern"${sstyle==='modern'?' selected':''}>Modern (slab + slim posts)</option>
+      <option value="victorian"${sstyle==='victorian'?' selected':''}>Victorian (ornate canopy + brick)</option>
+      <option value="rural"${sstyle==='rural'?' selected':''}>Rural (timber lean-to)</option>
+    </select></label>
     <div class="grid2">
       <label>Platform (m) <input data-bind="plat" type="number" min="40" max="400" value="${s.plat}"></label>
       <label>Elev (m) <input data-bind="elev" type="number" min="0" max="500" value="${s.elev}"></label>
@@ -715,6 +721,7 @@ function addStation(x, y){
     side: 'L',
     platforms: 1,         // 1..6 platform faces
     type: 'station',      // 'halt' | 'station' | 'terminus' | 'junction'
+    style: 'modern',      // 'modern' | 'victorian' | 'rural'
     elev: 80,
     dwellSec: 30,
   };
@@ -895,6 +902,7 @@ function buildExport(){
   // visually identical to the v1 sample-line format.
   const stations = M.stations.map((s, i) => {
     const stype = String(s.type || 'station').toLowerCase();
+    const sstyle = String(s.style || 'modern').toLowerCase();
     const platforms = clamp(int(s.platforms || (s.side === 'I' ? 2 : 1)), 1, 6);
     const entry = {
       km: +stationKm(i).toFixed(3),
@@ -912,6 +920,7 @@ function buildExport(){
     const implicitPlatforms = (entry.side === 'I' ? 2 : 1);
     if (platforms !== implicitPlatforms) entry.platforms = platforms;
     if (stype !== 'station') entry.type = stype;
+    if (sstyle !== 'modern') entry.style = sstyle;
     return entry;
   });
   // Schedule: cumulative seconds. Default travel time ~60 mph between stops,
@@ -1010,6 +1019,7 @@ function importMap(json){
     side: s.side || 'L',
     platforms: s.platforms || (s.side === 'I' ? 2 : 1),
     type: String(s.type || 'station').toLowerCase(),
+    style: String(s.style || 'modern').toLowerCase(),
     elev: s.elev || 0,
     dwellSec: 30,
   }));
