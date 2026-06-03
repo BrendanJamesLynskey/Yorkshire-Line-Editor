@@ -83,6 +83,8 @@ button,input,select,textarea{font:inherit;color:inherit;}
 .station{fill:#fff;stroke:#5cc8ff;stroke-width:3px;vector-effect:non-scaling-stroke;cursor:pointer;}
 .station.selected{stroke:#ffaa66;stroke-width:5px;}
 .station.trackFrom{stroke:#9cff9c;stroke-width:6px;filter:drop-shadow(0 0 6px rgba(140,255,140,0.55));}
+.station.justMoved{stroke:#ffd23a;stroke-width:7px;filter:drop-shadow(0 0 8px rgba(255,210,58,0.7));animation:justMovedPulse 1.4s ease-out;}
+@keyframes justMovedPulse{0%{stroke-width:12px;stroke-opacity:1;}60%{stroke-width:9px;stroke-opacity:0.95;}100%{stroke-width:7px;stroke-opacity:0.85;}}
 .stationLabel{fill:#cfe6f7;font-size:14px;text-anchor:middle;}
 .featureMark{cursor:pointer;}
 .featureMark.bridge{fill:#5cc8ff;stroke:#1860a0;stroke-width:1.5px;vector-effect:non-scaling-stroke;}
@@ -191,6 +193,9 @@ let tool = 'select';
 // station click reorders the route so that station follows it.
 let trackFromId = null;
 let lastMousePos = null;     // world coords, for rubber-band drawing
+// IDs of stations the Track tool just moved — held briefly so the canvas
+// can flash them yellow, then cleared by a setTimeout-scheduled render.
+let justMovedIds = new Set();
 let selectedId = null;
 let nextId = 1;
 let viewBox = { ...DEFAULT_ZOOM };
@@ -437,7 +442,8 @@ function buildStationMark(s, idx){
   const g = el('g', { transform: `translate(${s.x}, ${-s.y})` });
   const cls = 'station'
     + (selectedId === s.id ? ' selected' : '')
-    + (trackFromId === s.id ? ' trackFrom' : '');
+    + (trackFromId === s.id ? ' trackFrom' : '')
+    + (justMovedIds.has(s.id) ? ' justMoved' : '');
   const c = el('circle', { r: 280, class: cls });
   c.dataset.id = s.id;
   g.appendChild(c);
@@ -830,17 +836,51 @@ function handleTrackClick(stnId){
 // reordering is all that's needed to make the two stations directly adjacent.
 function connectStations(fromId, toId){
   if (fromId === toId) return;
+  const beforeCount = M.stations.length;
+  const fromIdxBefore = M.stations.findIndex(s => s.id === fromId);
+  const toIdxBefore   = M.stations.findIndex(s => s.id === toId);
+  if (fromIdxBefore < 0 || toIdxBefore < 0) return;
+  // Stations strictly between source and target in the current array order
+  // (in either direction). These were "in front" of one of the clicked
+  // stations and otherwise would have been displaced to weird positions.
+  // We MOVE them — never delete — to immediately after the target so the
+  // route still flows through them, just in a re-stitched order.
+  const lo = Math.min(fromIdxBefore, toIdxBefore);
+  const hi = Math.max(fromIdxBefore, toIdxBefore);
+  const between = M.stations.slice(lo + 1, hi).map(s => s.id);
+  // Splice the target out, then the in-between stations out (right-to-left
+  // so indices stay valid), then splice them all back in directly after the
+  // source: target first, then the previously-between stations in their
+  // original order.
   const toIdx = M.stations.findIndex(s => s.id === toId);
-  if (toIdx < 0) return;
-  const [moved] = M.stations.splice(toIdx, 1);
+  const [movedTo] = M.stations.splice(toIdx, 1);
+  const movedBetween = [];
+  for (let i = between.length - 1; i >= 0; i--){
+    const idx = M.stations.findIndex(s => s.id === between[i]);
+    if (idx >= 0) movedBetween.unshift(...M.stations.splice(idx, 1));
+  }
   const fromIdx = M.stations.findIndex(s => s.id === fromId);
   if (fromIdx < 0){
-    // From-station disappeared (shouldn't happen) — put back where it was.
-    M.stations.splice(toIdx, 0, moved);
+    // Source disappeared (shouldn't happen) — restore everything in place.
+    M.stations.splice(toIdx, 0, movedTo, ...movedBetween);
     return;
   }
-  M.stations.splice(fromIdx + 1, 0, moved);
-  msg(`Connected "${M.stations[fromIdx].name}" → "${moved.name}"`, 'ok');
+  M.stations.splice(fromIdx + 1, 0, movedTo, ...movedBetween);
+  // Defensive: confirm we didn't lose any station. If counts diverge, log
+  // loudly so a regression can be caught.
+  if (M.stations.length !== beforeCount){
+    console.error('connectStations: station count changed from ' + beforeCount + ' to ' + M.stations.length);
+  }
+  // Status message names the route in full so it's visually clear that
+  // every station is still present — just in a re-stitched order. Long
+  // routes get truncated with an ellipsis.
+  justMovedIds = new Set([movedTo.id, ...movedBetween.map(s => s.id)]);
+  setTimeout(() => { justMovedIds.clear(); scheduleRender(); }, 1600);
+  const names = M.stations.map(s => s.name);
+  const route = names.length > 8
+    ? names.slice(0, 4).join(' → ') + ' … ' + names.slice(-3).join(' → ')
+    : names.join(' → ');
+  msg(`Connected "${M.stations[fromIdx].name}" → "${movedTo.name}". Route: ${route}`, 'ok');
 }
 
 // Pointer events on the canvas
