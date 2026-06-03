@@ -68,11 +68,18 @@ button,input,select,textarea{font:inherit;color:inherit;}
 /* ============ SVG CANVAS CONTENTS ============ */
 .gridline{stroke:rgba(92,200,255,0.07);stroke-width:1px;vector-effect:non-scaling-stroke;}
 .gridline.major{stroke:rgba(92,200,255,0.14);}
-.scalebar{stroke:#cfe6f7;stroke-width:2px;vector-effect:non-scaling-stroke;}
-.track{fill:none;stroke:#cfe6f7;stroke-width:3px;vector-effect:non-scaling-stroke;}
-.trackHalo{fill:none;stroke:rgba(92,200,255,0.18);stroke-width:14px;vector-effect:non-scaling-stroke;stroke-linecap:round;}
-.limitZone{fill:none;stroke-width:10px;vector-effect:non-scaling-stroke;stroke-linecap:butt;opacity:0.55;}
-.river{fill:none;stroke:#4090c8;stroke-width:6px;vector-effect:non-scaling-stroke;stroke-linecap:round;stroke-linejoin:round;opacity:0.85;}
+.scalebar{stroke:#cfe6f7;stroke-width:2px;vector-effect:non-scaling-stroke;pointer-events:none;}
+/* Decorative strokes ignore pointer events so clicks pass through to the
+   interactive markers (stations, features, river points, limits) underneath.
+   The trackHalo in particular is 14 px wide and would otherwise swallow
+   every click landing on or near the rendered route — including the second
+   click of the Track tool, since the rubber-band line ends right on the
+   target station. */
+.track{fill:none;stroke:#cfe6f7;stroke-width:3px;vector-effect:non-scaling-stroke;pointer-events:none;}
+.trackHalo{fill:none;stroke:rgba(92,200,255,0.18);stroke-width:14px;vector-effect:non-scaling-stroke;stroke-linecap:round;pointer-events:none;}
+.limitZone{fill:none;stroke-width:10px;vector-effect:non-scaling-stroke;stroke-linecap:butt;opacity:0.55;pointer-events:none;}
+.river{fill:none;stroke:#4090c8;stroke-width:6px;vector-effect:non-scaling-stroke;stroke-linecap:round;stroke-linejoin:round;opacity:0.85;pointer-events:none;}
+.rubberBand{stroke:#9cff9c;stroke-width:3px;stroke-dasharray:180,140;stroke-linecap:round;vector-effect:non-scaling-stroke;opacity:0.85;pointer-events:none;}
 .station{fill:#fff;stroke:#5cc8ff;stroke-width:3px;vector-effect:non-scaling-stroke;cursor:pointer;}
 .station.selected{stroke:#ffaa66;stroke-width:5px;}
 .station.trackFrom{stroke:#9cff9c;stroke-width:6px;filter:drop-shadow(0 0 6px rgba(140,255,140,0.55));}
@@ -385,18 +392,16 @@ function render(){
     svg.appendChild(buildStationMark(M.stations[i], i));
   }
   // Track-tool rubber band — drawn last so it sits above the stations.
+  // Class .rubberBand sets pointer-events:none so the line doesn't intercept
+  // the second click of the Track tool (which lands at the line's endpoint).
   if (tool === 'track' && trackFromId !== null && lastMousePos){
     const fromStn = M.stations.find(s => s.id === trackFromId);
     if (fromStn){
-      const line = el('line', {
+      svg.appendChild(el('line', {
         x1: fromStn.x, y1: -fromStn.y,
         x2: lastMousePos.x, y2: -lastMousePos.y,
-        stroke: '#9cff9c', 'stroke-width': 3, 'stroke-dasharray': '180,140',
-        'stroke-linecap': 'round',
-        'vector-effect': 'non-scaling-stroke',
-        opacity: 0.85,
-      });
-      svg.appendChild(line);
+        class: 'rubberBand',
+      }));
     }
   }
 
