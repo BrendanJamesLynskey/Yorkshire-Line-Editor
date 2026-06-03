@@ -560,6 +560,7 @@ function renderStationProps(s){
   const platforms = s.platforms || (s.side === 'I' ? 2 : 1);
   const stype = s.type || 'station';
   const sstyle = s.style || 'modern';
+  const footbridge = !!s.footbridge;
   const wrap = document.createElement('div');
   wrap.innerHTML = `
     <label>Name <input data-bind="name" type="text" value="${attr(s.name)}"></label>
@@ -585,6 +586,10 @@ function renderStationProps(s){
       <option value="victorian"${sstyle==='victorian'?' selected':''}>Victorian (ornate canopy + brick)</option>
       <option value="rural"${sstyle==='rural'?' selected':''}>Rural (timber lean-to)</option>
     </select></label>
+    <label style="flex-direction:row;align-items:center;gap:0.55em;text-transform:none;letter-spacing:0.04em;font-size:0.74rem;color:rgba(207,230,247,0.78);">
+      <input data-bind="footbridge" type="checkbox" style="width:1em;height:1em;accent-color:#5cc8ff;cursor:pointer;margin-top:0.05rem;"${footbridge?' checked':''}>
+      Footbridge (pedestrian overpass)
+    </label>
     <div class="grid2">
       <label>Platform (m) <input data-bind="plat" type="number" min="40" max="400" value="${s.plat}"></label>
       <label>Elev (m) <input data-bind="elev" type="number" min="0" max="500" value="${s.elev}"></label>
@@ -656,10 +661,14 @@ function renderLimitProps(l){
 
 function bindInputs(root, obj){
   root.querySelectorAll('[data-bind]').forEach(inp => {
-    inp.addEventListener('input', () => {
+    // Checkboxes use 'change' rather than 'input' and read .checked.
+    const isCheck = inp.type === 'checkbox';
+    inp.addEventListener(isCheck ? 'change' : 'input', () => {
       const key = inp.dataset.bind;
-      let v = inp.value;
-      if (inp.type === 'number') v = v === '' ? 0 : Number(v);
+      let v;
+      if (isCheck) v = inp.checked;
+      else if (inp.type === 'number') v = inp.value === '' ? 0 : Number(inp.value);
+      else v = inp.value;
       obj[key] = v;
       scheduleRender();
     });
@@ -722,6 +731,7 @@ function addStation(x, y){
     platforms: 1,         // 1..6 platform faces
     type: 'station',      // 'halt' | 'station' | 'terminus' | 'junction'
     style: 'modern',      // 'modern' | 'victorian' | 'rural'
+    footbridge: false,    // pedestrian overpass spanning both running tracks
     elev: 80,
     dwellSec: 30,
   };
@@ -921,6 +931,7 @@ function buildExport(){
     if (platforms !== implicitPlatforms) entry.platforms = platforms;
     if (stype !== 'station') entry.type = stype;
     if (sstyle !== 'modern') entry.style = sstyle;
+    if (s.footbridge) entry.footbridge = true;
     return entry;
   });
   // Schedule: cumulative seconds. Default travel time ~60 mph between stops,
@@ -1020,6 +1031,7 @@ function importMap(json){
     platforms: s.platforms || (s.side === 'I' ? 2 : 1),
     type: String(s.type || 'station').toLowerCase(),
     style: String(s.style || 'modern').toLowerCase(),
+    footbridge: !!s.footbridge,
     elev: s.elev || 0,
     dwellSec: 30,
   }));
