@@ -18,6 +18,7 @@ work; exporting produces a JSON file that drops straight into the sim via its
 | **＋ Bridge / Tunnel / Viaduct / Mill** | Drag onto the canvas. Snaps to the nearest point on the track. Length and (for mills) side editable. |
 | **＋ River pt** | Click to extend a polyline that becomes the river. The exporter converts each point to a `{km, lateral-offset-metres}` pair against the track. |
 | **＋ Limit** | Drop a speed-limit marker onto the track. Default 60 mph, editable in the sidebar. The route colours itself along the curve by the active limit (green ≥60, amber 40–60, orange 25–40, red <25). |
+| **⌁ Track** | Click two stations to make them adjacent in the route. The first click locks a green-highlighted "from" station and pulls a dashed rubber-band line to the cursor; the second click reorders `M.stations` so the second station immediately follows the first. Esc, clicking the same station twice, or clicking the canvas background cancels. Use this when the placement order doesn't match the desired route order. |
 | **▣ Select** | Default tool. Click to select, drag to move (including the speed-limit / feature / river markers — they re-snap to the track on drop). |
 
 Speed limits / features / river points all stay snapped to the live track as

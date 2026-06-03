@@ -75,6 +75,7 @@ button,input,select,textarea{font:inherit;color:inherit;}
 .river{fill:none;stroke:#4090c8;stroke-width:6px;vector-effect:non-scaling-stroke;stroke-linecap:round;stroke-linejoin:round;opacity:0.85;}
 .station{fill:#fff;stroke:#5cc8ff;stroke-width:3px;vector-effect:non-scaling-stroke;cursor:pointer;}
 .station.selected{stroke:#ffaa66;stroke-width:5px;}
+.station.trackFrom{stroke:#9cff9c;stroke-width:6px;filter:drop-shadow(0 0 6px rgba(140,255,140,0.55));}
 .stationLabel{fill:#cfe6f7;font-size:14px;text-anchor:middle;}
 .featureMark{cursor:pointer;}
 .featureMark.bridge{fill:#5cc8ff;stroke:#1860a0;stroke-width:1.5px;vector-effect:non-scaling-stroke;}
@@ -104,6 +105,7 @@ button,input,select,textarea{font:inherit;color:inherit;}
     <button id="btnSave" class="primary">Save JSON</button>
     <span class="sep"></span>
     <button data-tool="select" class="active">▣ Select</button>
+    <button data-tool="track">⌁ Track</button>
     <button data-tool="station">＋ Station</button>
     <button data-tool="bridge">＋ Bridge</button>
     <button data-tool="tunnel">＋ Tunnel</button>
@@ -178,6 +180,10 @@ const M = {
 
 // Default start limit at km 0 is implicit at export time.
 let tool = 'select';
+// Track-tool state: the first picked station becomes trackFromId; the next
+// station click reorders the route so that station follows it.
+let trackFromId = null;
+let lastMousePos = null;     // world coords, for rubber-band drawing
 let selectedId = null;
 let nextId = 1;
 let viewBox = { ...DEFAULT_ZOOM };
@@ -378,6 +384,21 @@ function render(){
   for (let i = 0; i < M.stations.length; i++){
     svg.appendChild(buildStationMark(M.stations[i], i));
   }
+  // Track-tool rubber band — drawn last so it sits above the stations.
+  if (tool === 'track' && trackFromId !== null && lastMousePos){
+    const fromStn = M.stations.find(s => s.id === trackFromId);
+    if (fromStn){
+      const line = el('line', {
+        x1: fromStn.x, y1: -fromStn.y,
+        x2: lastMousePos.x, y2: -lastMousePos.y,
+        stroke: '#9cff9c', 'stroke-width': 3, 'stroke-dasharray': '180,140',
+        'stroke-linecap': 'round',
+        'vector-effect': 'non-scaling-stroke',
+        opacity: 0.85,
+      });
+      svg.appendChild(line);
+    }
+  }
 
   renderSidebar();
   renderStatus();
@@ -409,7 +430,10 @@ function buildGrid(){
 
 function buildStationMark(s, idx){
   const g = el('g', { transform: `translate(${s.x}, ${-s.y})` });
-  const c = el('circle', { r: 280, class: 'station' + (selectedId === s.id ? ' selected' : '') });
+  const cls = 'station'
+    + (selectedId === s.id ? ' selected' : '')
+    + (trackFromId === s.id ? ' trackFrom' : '');
+  const c = el('circle', { r: 280, class: cls });
   c.dataset.id = s.id;
   g.appendChild(c);
   const numTxt = el('text', { y: 6, class: 'stationLabel', 'font-weight': 700, 'font-size': 360 });
@@ -708,11 +732,18 @@ function renderStatus(){
 // TOOL HANDLING + CANVAS EVENTS
 // ============================================================
 function setTool(t){
+  // Switching away from the track tool mid-flow drops the pending from-id.
+  if (tool === 'track' && t !== 'track') trackFromId = null;
   tool = t;
   document.querySelectorAll('#toolbar [data-tool]').forEach(b => {
     b.classList.toggle('active', b.dataset.tool === t);
   });
   svg.classList.toggle('tooling', t !== 'select');
+  if (t === 'track' && M.stations.length < 2){
+    msg('Need at least two stations to use the Track tool', 'err');
+  } else if (t === 'track'){
+    msg('Click a station, then click another to connect them', 'info');
+  }
 }
 
 document.querySelectorAll('#toolbar [data-tool]').forEach(b => {
@@ -757,9 +788,54 @@ function addRiverPoint(x, y){
 function addLimit(x, y, mph){
   const l = { id: uid('lim'), x, y, mph: mph ?? 60 };
   M.limits.push(l);
-  selectedId = l.id;
   setTool('select');
+  selectedId = l.id;
   msg('Added speed limit', 'ok');
+}
+
+// Track tool — handle a station click. First click stores the "from" id,
+// second click reorders M.stations so the second station immediately
+// follows the first. Same-station click cancels.
+function handleTrackClick(stnId){
+  // Only stations are valid track endpoints; ignore clicks on features /
+  // river points / limit markers (they live in different arrays and never
+  // appear in M.stations).
+  if (!M.stations.some(s => s.id === stnId)) return;
+  if (trackFromId === null){
+    trackFromId = stnId;
+    selectedId = stnId;
+    const s = M.stations.find(x => x.id === stnId);
+    msg(`From "${s?.name}" — click second station to connect`, 'info');
+    return;
+  }
+  if (stnId === trackFromId){
+    trackFromId = null;
+    msg('Track tool cancelled', 'info');
+    setTool('select');
+    return;
+  }
+  connectStations(trackFromId, stnId);
+  selectedId = stnId;
+  trackFromId = null;
+  setTool('select');
+}
+
+// Move the `toId` station to immediately follow `fromId` in the route array.
+// The Catmull-Rom track is computed from M.stations in array order, so
+// reordering is all that's needed to make the two stations directly adjacent.
+function connectStations(fromId, toId){
+  if (fromId === toId) return;
+  const toIdx = M.stations.findIndex(s => s.id === toId);
+  if (toIdx < 0) return;
+  const [moved] = M.stations.splice(toIdx, 1);
+  const fromIdx = M.stations.findIndex(s => s.id === fromId);
+  if (fromIdx < 0){
+    // From-station disappeared (shouldn't happen) — put back where it was.
+    M.stations.splice(toIdx, 0, moved);
+    return;
+  }
+  M.stations.splice(fromIdx + 1, 0, moved);
+  msg(`Connected "${M.stations[fromIdx].name}" → "${moved.name}"`, 'ok');
 }
 
 // Pointer events on the canvas
@@ -767,6 +843,11 @@ svg.addEventListener('pointerdown', ev => {
   const targetId = ev.target?.dataset?.id;
   // Click on an existing element: select + start drag (in select mode)
   if (targetId){
+    if (tool === 'track'){
+      handleTrackClick(targetId);
+      scheduleRender();
+      return;
+    }
     selectedId = targetId;
     if (tool === 'select'){
       const obj = findById(targetId).obj;
@@ -780,6 +861,15 @@ svg.addEventListener('pointerdown', ev => {
   }
   // Background click
   const w = clientToWorld(ev.clientX, ev.clientY);
+  if (tool === 'track'){
+    if (trackFromId !== null){
+      trackFromId = null;
+      msg('Track tool cancelled', 'info');
+    }
+    setTool('select');
+    scheduleRender();
+    return;
+  }
   if (tool === 'select'){
     selectedId = null;
     interaction = { kind: 'pan', x0: ev.clientX, y0: ev.clientY, vx0: viewBox.x, vy0: viewBox.y };
@@ -804,6 +894,9 @@ svg.addEventListener('pointerdown', ev => {
 svg.addEventListener('pointermove', ev => {
   const w = clientToWorld(ev.clientX, ev.clientY);
   coordsEl.textContent = `${w.x.toFixed(0)} m, ${w.y.toFixed(0)} m`;
+  lastMousePos = w;
+  // Rubber-band line follows the cursor while the track tool is mid-flow.
+  if (tool === 'track' && trackFromId !== null) scheduleRender();
   if (!interaction) return;
   if (interaction.kind === 'pan'){
     const rate = viewBox.w / svg.getBoundingClientRect().width;
@@ -847,7 +940,7 @@ svg.addEventListener('wheel', ev => {
 
 window.addEventListener('keydown', ev => {
   if (ev.target.tagName === 'INPUT' || ev.target.tagName === 'TEXTAREA' || ev.target.tagName === 'SELECT') return;
-  if (ev.key === 'Escape'){ setTool('select'); selectedId = null; scheduleRender(); }
+  if (ev.key === 'Escape'){ trackFromId = null; setTool('select'); selectedId = null; scheduleRender(); }
   else if (ev.key === 'Delete' || ev.key === 'Backspace'){ if (selectedId) deleteSelected(); }
   else if (ev.key === 'f' || ev.key === 'F'){ zoomToFit(); }
 });
@@ -1120,7 +1213,7 @@ function restoreLocal(){
 // ============================================================
 // BOOT
 // ============================================================
-window.SIM_EDITOR = { M, render, importMap, buildExport, setTool, get viewBox(){return viewBox;} };
+window.SIM_EDITOR = { M, render, importMap, buildExport, setTool, handleTrackClick, connectStations, get trackFromId(){return trackFromId;}, get viewBox(){return viewBox;} };
 
 const restored = restoreLocal();
 if (!restored){
