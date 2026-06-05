@@ -100,6 +100,17 @@ button,input,select,textarea{font:inherit;color:inherit;}
 .limitMark polygon{fill:#f0c850;stroke:#604018;stroke-width:1.5px;vector-effect:non-scaling-stroke;}
 .limitMark.selected polygon{stroke:#ffaa66;stroke-width:3px;}
 .limitLabel{fill:#1a1a1a;font-size:11px;font-weight:700;text-anchor:middle;font-family:'Orbitron',sans-serif;}
+/* Road polyline — grey tarmac stroke with a dashed yellow centre line.
+   Both layers carry pointer-events:none so the road dots underneath are
+   what receives clicks. */
+.road{fill:none;stroke:#3a3a3a;stroke-width:8px;vector-effect:non-scaling-stroke;stroke-linecap:round;stroke-linejoin:round;opacity:0.92;pointer-events:none;}
+.roadCenterline{fill:none;stroke:#f0c850;stroke-width:1.5px;stroke-dasharray:120,140;vector-effect:non-scaling-stroke;pointer-events:none;opacity:0.85;}
+.roadPt{fill:#9098a0;stroke:#0a1828;stroke-width:1.5px;vector-effect:non-scaling-stroke;cursor:pointer;}
+.roadPt.selected{stroke:#ffaa66;stroke-width:3px;}
+/* House paint dots — small terracotta squares dropped by the Paint tool
+   along the cursor stroke. */
+.house{fill:#d4a070;stroke:#7a4d2a;stroke-width:1px;vector-effect:non-scaling-stroke;cursor:pointer;}
+.house.selected{stroke:#ffaa66;stroke-width:2px;}
 
 </style>
 </head>
@@ -122,6 +133,8 @@ button,input,select,textarea{font:inherit;color:inherit;}
     <button data-tool="viaduct">＋ Viaduct</button>
     <button data-tool="mill">＋ Mill</button>
     <button data-tool="river">＋ River pt</button>
+    <button data-tool="road">＋ Road pt</button>
+    <button data-tool="paint">▪ Houses</button>
     <button data-tool="limit">＋ Limit</button>
     <span class="sep"></span>
     <button id="btnZoomFit">Fit</button>
@@ -185,12 +198,25 @@ const M = {
   stations: [],     // {id, x, y, name, code, plat, side, elev, dwellSec}
   features: [],     // {id, kind, x, y, len, side}
   riverPoints: [],  // {id, x, y}
+  // Polyline road that the Road tool extends one click at a time. The sim
+  // renders this as a tarmac strip with a few animated cars driving along it.
+  roadPoints: [],   // {id, x, y}
+  // Paint-tool houses — individual building markers dropped along the
+  // cursor stroke. Replaces the prior random per-station buildings the sim
+  // used to scatter at every station.
+  houses: [],       // {id, x, y}
   limits: [],       // {id, x, y, mph}  (x,y derived/snapped to track)
   // Track tool draws explicit edges between station pairs ON TOP of the
   // implicit Catmull-Rom curve through the stations array. Edges are
   // additive — they never reorder M.stations and never delete anything.
   edges: [],        // [{ id, from, to }]
 };
+// Paint-tool stroke state. When the user drags with the Paint tool active
+// we drop a house every PAINT_SPACING m so the cursor doesn't pile up dozens
+// at one point.
+let painting = false;
+let lastPaintXY = null;
+const PAINT_SPACING = 40;
 
 // Default start limit at km 0 is implicit at export time.
 let tool = 'select';
@@ -387,6 +413,26 @@ function render(){
     const dot = el('circle', { cx: p.x, cy: -p.y, r: 100, class: 'riverPt' + (selectedId === p.id ? ' selected' : '') });
     dot.dataset.id = p.id;
     svg.appendChild(dot);
+  }
+  // Road polyline — tarmac stroke plus a dashed yellow centre line above it.
+  if (M.roadPoints.length >= 2){
+    const d = M.roadPoints.map((p, i) => `${i ? 'L' : 'M'} ${p.x} ${-p.y}`).join(' ');
+    svg.appendChild(el('path', { d, class: 'road' }));
+    svg.appendChild(el('path', { d, class: 'roadCenterline' }));
+  }
+  for (const p of M.roadPoints){
+    const dot = el('circle', { cx: p.x, cy: -p.y, r: 80, class: 'roadPt' + (selectedId === p.id ? ' selected' : '') });
+    dot.dataset.id = p.id;
+    svg.appendChild(dot);
+  }
+  // Houses — small terracotta squares dropped by the Paint tool.
+  for (const h of M.houses){
+    const sq = el('rect', {
+      x: h.x - 18, y: -h.y - 18, width: 36, height: 36,
+      class: 'house' + (selectedId === h.id ? ' selected' : ''),
+    });
+    sq.dataset.id = h.id;
+    svg.appendChild(sq);
   }
 
   // Features
@@ -745,6 +791,8 @@ function findById(id){
   for (const s of M.stations) if (s.id === id) return { kind: 'station', obj: s };
   for (const f of M.features) if (f.id === id) return { kind: 'feature', obj: f };
   for (const p of M.riverPoints) if (p.id === id) return { kind: 'river', obj: p };
+  for (const p of M.roadPoints) if (p.id === id) return { kind: 'road', obj: p };
+  for (const h of M.houses) if (h.id === id) return { kind: 'house', obj: h };
   for (const l of M.limits) if (l.id === id) return { kind: 'limit', obj: l };
   return null;
 }
@@ -755,6 +803,8 @@ function deleteSelected(){
   if (sel.kind === 'station') M.stations = M.stations.filter(s => s.id !== selectedId);
   else if (sel.kind === 'feature') M.features = M.features.filter(f => f.id !== selectedId);
   else if (sel.kind === 'river') M.riverPoints = M.riverPoints.filter(p => p.id !== selectedId);
+  else if (sel.kind === 'road') M.roadPoints = M.roadPoints.filter(p => p.id !== selectedId);
+  else if (sel.kind === 'house') M.houses = M.houses.filter(h => h.id !== selectedId);
   else if (sel.kind === 'limit') M.limits = M.limits.filter(l => l.id !== selectedId);
   selectedId = null;
   scheduleRender();
@@ -764,7 +814,7 @@ function attr(s){ return String(s == null ? '' : s).replace(/"/g, '&quot;'); }
 function escapeHtml(s){ return String(s == null ? '' : s).replace(/[&<>]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c])); }
 
 function renderStatus(){
-  setStatus(`${M.stations.length} stns · ${M.features.length} features · ${M.riverPoints.length} river pts · ${M.limits.length} limits · ${totalKm().toFixed(2)} km`);
+  setStatus(`${M.stations.length} stns · ${M.features.length} features · ${M.riverPoints.length} river pts · ${M.roadPoints.length} road pts · ${M.houses.length} houses · ${M.limits.length} limits · ${totalKm().toFixed(2)} km`);
 }
 
 // ============================================================
@@ -823,6 +873,17 @@ function addRiverPoint(x, y){
   selectedId = p.id;
   // Stay in river tool so the user can keep clicking to extend the line.
   msg('River point added — click again to extend, Esc / Select to stop', 'info');
+}
+function addRoadPoint(x, y){
+  const p = { id: uid('rd'), x, y };
+  M.roadPoints.push(p);
+  selectedId = p.id;
+  msg('Road point added — click again to extend, Esc / Select to stop', 'info');
+}
+function addHouse(x, y){
+  const h = { id: uid('hs'), x, y };
+  M.houses.push(h);
+  return h;
 }
 function addLimit(x, y, mph){
   const l = { id: uid('lim'), x, y, mph: mph ?? 60 };
@@ -931,6 +992,17 @@ svg.addEventListener('pointerdown', ev => {
   // Tool placement
   if (tool === 'station') addStation(w.x, w.y);
   else if (tool === 'river') addRiverPoint(w.x, w.y);
+  else if (tool === 'road') addRoadPoint(w.x, w.y);
+  else if (tool === 'paint'){
+    // Begin a paint stroke. Drop a house at the click point, then enter
+    // dragging mode so subsequent pointermove events add more houses at
+    // PAINT_SPACING-metre intervals. pointerup ends the stroke.
+    painting = true;
+    lastPaintXY = w;
+    addHouse(w.x, w.y);
+    svg.setPointerCapture(ev.pointerId);
+    svg.classList.add('dragging');
+  }
   else if (tool === 'limit'){
     if (M.stations.length < 2){ msg('Add at least two stations first', 'err'); setTool('select'); return; }
     addLimit(w.x, w.y);
@@ -947,6 +1019,17 @@ svg.addEventListener('pointermove', ev => {
   lastMousePos = w;
   // Rubber-band line follows the cursor while the track tool is mid-flow.
   if (tool === 'track' && trackFromId !== null) scheduleRender();
+  // Paint stroke — drop a house every PAINT_SPACING m so a fast drag
+  // produces a sparse row rather than dozens piled at one pixel.
+  if (painting && tool === 'paint' && lastPaintXY){
+    const dx = w.x - lastPaintXY.x, dy = w.y - lastPaintXY.y;
+    if (Math.hypot(dx, dy) > PAINT_SPACING){
+      addHouse(w.x, w.y);
+      lastPaintXY = w;
+      scheduleRender();
+    }
+    return;
+  }
   if (!interaction) return;
   if (interaction.kind === 'pan'){
     const rate = viewBox.w / svg.getBoundingClientRect().width;
@@ -967,6 +1050,12 @@ svg.addEventListener('pointermove', ev => {
 svg.addEventListener('pointerup', ev => {
   if (interaction){
     svg.releasePointerCapture(ev.pointerId);
+    svg.classList.remove('dragging');
+  }
+  if (painting){
+    painting = false;
+    lastPaintXY = null;
+    try { svg.releasePointerCapture(ev.pointerId); } catch (e){}
     svg.classList.remove('dragging');
   }
   interaction = null;
@@ -1104,6 +1193,19 @@ function buildExport(){
     const lo = lateralOffset(p.x, p.y, samples);
     return { km: +lo.km.toFixed(2), lat: Math.round(lo.lateral) };
   });
+  // Road — same conversion as river. The sim builds a tarmac strip
+  // through these points and animates a handful of cars along it.
+  const roadPath = M.roadPoints.map(p => {
+    const lo = lateralOffset(p.x, p.y, samples);
+    return { km: +lo.km.toFixed(2), lat: Math.round(lo.lateral) };
+  });
+  // Houses — paint-tool houses also encoded as {km, lat} pairs so the
+  // sim can place them via the same trackFrame projection it uses for
+  // river / features. Replaces the prior random-per-station scattering.
+  const houses = M.houses.map(h => {
+    const lo = lateralOffset(h.x, h.y, samples);
+    return { km: +lo.km.toFixed(2), lat: Math.round(lo.lateral) };
+  });
   // Final
   const out = {
     version: 1,
@@ -1119,6 +1221,8 @@ function buildExport(){
     limits: limitsRaw,
     features,
     riverPath,
+    roadPath,
+    houses,
     shapePoints: [],
   };
   return { ok: true, json: out };
@@ -1205,6 +1309,22 @@ function importMap(json){
     const rx = p.ty / tlen, ry = -p.tx / tlen;
     return { id: uid('rv'), x: p.x + rx * (rp.lat || 0), y: p.y + ry * (rp.lat || 0) };
   }).filter(Boolean);
+  // Road points — same projection as river points.
+  M.roadPoints = (json.roadPath || []).map(rp => {
+    const p = trackPointAtKm(rp.km, samples);
+    if (!p) return null;
+    const tlen = Math.hypot(p.tx, p.ty) || 1;
+    const rx = p.ty / tlen, ry = -p.tx / tlen;
+    return { id: uid('rd'), x: p.x + rx * (rp.lat || 0), y: p.y + ry * (rp.lat || 0) };
+  }).filter(Boolean);
+  // Houses — also encoded as {km, lat} pairs.
+  M.houses = (json.houses || []).map(h => {
+    const p = trackPointAtKm(h.km, samples);
+    if (!p) return null;
+    const tlen = Math.hypot(p.tx, p.ty) || 1;
+    const rx = p.ty / tlen, ry = -p.tx / tlen;
+    return { id: uid('hs'), x: p.x + rx * (h.lat || 0), y: p.y + ry * (h.lat || 0) };
+  }).filter(Boolean);
   // Limits — at the (x, y) of the nearest track point at that km.
   M.limits = (json.limits || []).map(l => {
     const p = trackPointAtKm(l.km, samples);
@@ -1228,7 +1348,7 @@ $('btnNew').addEventListener('click', () => {
   if (M.stations.length && !confirm('Discard current line?')) return;
   Object.assign(M, {
     meta: { key: 'my-line', name: 'My Line', displayName: 'MY LINE', biome: 'countryside', service: '2X42 START → END' },
-    stations: [], features: [], riverPoints: [], limits: [], edges: [],
+    stations: [], features: [], riverPoints: [], roadPoints: [], houses: [], limits: [], edges: [],
   });
   selectedId = null;
   viewBox = { ...DEFAULT_ZOOM };
@@ -1238,7 +1358,7 @@ $('btnNew').addEventListener('click', () => {
 
 function saveLocal(){
   try {
-    const payload = { meta: M.meta, stations: M.stations, features: M.features, riverPoints: M.riverPoints, limits: M.limits, edges: M.edges, viewBox };
+    const payload = { meta: M.meta, stations: M.stations, features: M.features, riverPoints: M.riverPoints, roadPoints: M.roadPoints, houses: M.houses, limits: M.limits, edges: M.edges, viewBox };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   } catch (e){ /* quota or private mode — silent */ }
 }
@@ -1248,11 +1368,11 @@ function restoreLocal(){
     if (!raw) return false;
     const payload = JSON.parse(raw);
     if (!payload?.stations) return false;
-    Object.assign(M, { meta: payload.meta || M.meta, stations: payload.stations, features: payload.features || [], riverPoints: payload.riverPoints || [], limits: payload.limits || [], edges: payload.edges || [] });
+    Object.assign(M, { meta: payload.meta || M.meta, stations: payload.stations, features: payload.features || [], riverPoints: payload.riverPoints || [], roadPoints: payload.roadPoints || [], houses: payload.houses || [], limits: payload.limits || [], edges: payload.edges || [] });
     if (payload.viewBox) viewBox = payload.viewBox;
     // Re-assign ids so the running counter doesn't reuse them. (Existing ids
     // stay, we just bump nextId past the highest numeric tail.)
-    const all = [...M.stations, ...M.features, ...M.riverPoints, ...M.limits, ...M.edges];
+    const all = [...M.stations, ...M.features, ...M.riverPoints, ...M.roadPoints, ...M.houses, ...M.limits, ...M.edges];
     let high = 0;
     for (const it of all){
       const m = /-(\d+)$/.exec(it.id || '');
