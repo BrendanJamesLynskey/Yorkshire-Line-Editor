@@ -956,6 +956,22 @@ function addHouse(x, y){
   M.houses.push(h);
   return h;
 }
+// Paint-tool drop — places HOUSES_PER_DROP houses in a small cluster
+// scattered around (x, y). The cluster radius scales with the current
+// brush size so a bigger brush spreads the cluster wider. Angles are
+// distributed around the cursor + a small deterministic jitter so the
+// cluster reads as scatter rather than a perfect five-pointed star.
+const HOUSES_PER_DROP = 5;
+function addHouseCluster(x, y){
+  const radius = paintBrushSize() * 0.45;
+  const out = [];
+  for (let i = 0; i < HOUSES_PER_DROP; i++){
+    const angle = (i / HOUSES_PER_DROP) * Math.PI * 2 + Math.random() * 0.45;
+    const dist  = radius * (0.25 + Math.random() * 0.75);
+    out.push(addHouse(x + Math.cos(angle) * dist, y + Math.sin(angle) * dist));
+  }
+  return out;
+}
 function addHill(x, y){
   const h = { id: uid('hl'), x, y, radius: 120, height: 35 };
   M.hills.push(h);
@@ -1073,12 +1089,13 @@ svg.addEventListener('pointerdown', ev => {
   else if (tool === 'road') addRoadPoint(w.x, w.y);
   else if (tool === 'hill') addHill(w.x, w.y);
   else if (tool === 'paint'){
-    // Begin a paint stroke. Drop a house at the click point, then enter
-    // dragging mode so subsequent pointermove events add more houses at
-    // paintBrushSize()-metre intervals. pointerup ends the stroke.
+    // Begin a paint stroke. Drop a CLUSTER of houses at the click point
+    // (HOUSES_PER_DROP per drop, scattered in a small circle), then enter
+    // dragging mode so subsequent pointermove events drop another cluster
+    // every paintBrushSize() metres. pointerup ends the stroke.
     painting = true;
     lastPaintXY = w;
-    addHouse(w.x, w.y);
+    addHouseCluster(w.x, w.y);
     svg.setPointerCapture(ev.pointerId);
     svg.classList.add('dragging');
   }
@@ -1106,7 +1123,7 @@ svg.addEventListener('pointermove', ev => {
     const spacing = paintBrushSize();
     const dx = w.x - lastPaintXY.x, dy = w.y - lastPaintXY.y;
     if (Math.hypot(dx, dy) > spacing){
-      addHouse(w.x, w.y);
+      addHouseCluster(w.x, w.y);
       lastPaintXY = w;
       scheduleRender();
     }
