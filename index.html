@@ -111,6 +111,10 @@ button,input,select,textarea{font:inherit;color:inherit;}
    along the cursor stroke. */
 .house{fill:#d4a070;stroke:#7a4d2a;stroke-width:1px;vector-effect:non-scaling-stroke;cursor:pointer;}
 .house.selected{stroke:#ffaa66;stroke-width:2px;}
+/* Hill markers — a green triangle whose width hints at the hill's
+   on-the-ground radius (drawn at the hill's centre). */
+.hill{fill:#5c8c4a;stroke:#284018;stroke-width:1.5px;vector-effect:non-scaling-stroke;cursor:pointer;opacity:0.78;}
+.hill.selected{stroke:#ffaa66;stroke-width:3px;opacity:1;}
 
 </style>
 </head>
@@ -135,6 +139,7 @@ button,input,select,textarea{font:inherit;color:inherit;}
     <button data-tool="river">＋ River pt</button>
     <button data-tool="road">＋ Road pt</button>
     <button data-tool="paint">▪ Houses</button>
+    <button data-tool="hill">▲ Hill</button>
     <button data-tool="limit">＋ Limit</button>
     <span class="sep"></span>
     <button id="btnZoomFit">Fit</button>
@@ -205,6 +210,10 @@ const M = {
   // cursor stroke. Replaces the prior random per-station buildings the sim
   // used to scatter at every station.
   houses: [],       // {id, x, y}
+  // Hills — click-placed terrain bumps. Each carries an editable radius
+  // (footprint) and height (peak above grade); the sim renders one
+  // grass-textured dome per hill at the projected world position.
+  hills: [],        // {id, x, y, radius, height}
   limits: [],       // {id, x, y, mph}  (x,y derived/snapped to track)
   // Track tool draws explicit edges between station pairs ON TOP of the
   // implicit Catmull-Rom curve through the stations array. Edges are
@@ -434,6 +443,18 @@ function render(){
     sq.dataset.id = h.id;
     svg.appendChild(sq);
   }
+  // Hills — drawn as triangles sized by the hill's radius so the
+  // footprint reads at a glance. Centre of the triangle's base sits
+  // on the hill's (x, y).
+  for (const h of M.hills){
+    const r = Math.max(50, Math.min(400, h.radius || 100));
+    const tri = el('polygon', {
+      points: `${h.x},${-h.y - r * 0.7} ${h.x - r * 0.55},${-h.y + r * 0.35} ${h.x + r * 0.55},${-h.y + r * 0.35}`,
+      class: 'hill' + (selectedId === h.id ? ' selected' : ''),
+    });
+    tri.dataset.id = h.id;
+    svg.appendChild(tri);
+  }
 
   // Features
   for (const f of M.features){
@@ -631,6 +652,7 @@ function renderSidebar(){
     if (sel.kind === 'station') renderStationProps(sel.obj);
     else if (sel.kind === 'feature') renderFeatureProps(sel.obj);
     else if (sel.kind === 'river') renderRiverProps(sel.obj);
+    else if (sel.kind === 'hill') renderHillProps(sel.obj);
     else if (sel.kind === 'limit') renderLimitProps(sel.obj);
   }
 
@@ -757,6 +779,23 @@ function renderRiverProps(p){
   propsEl.appendChild(wrap);
 }
 
+function renderHillProps(h){
+  const idx = M.hills.indexOf(h);
+  const wrap = document.createElement('div');
+  wrap.innerHTML = `
+    <label>Position <span class="row">
+      <input data-bind="x" type="number" step="50" value="${Math.round(h.x)}">
+      <input data-bind="y" type="number" step="50" value="${Math.round(h.y)}">
+    </span></label>
+    <label>Radius (m) <input data-bind="radius" type="number" min="20" max="500" step="10" value="${h.radius || 120}"></label>
+    <label>Height (m) <input data-bind="height" type="number" min="5"  max="200" step="5"  value="${h.height || 35}"></label>
+    <div style="color:rgba(180,210,235,0.45);font-size:0.62rem;margin-top:0.4rem;">Hill #${idx+1} · ${M.hills.length} total</div>
+    <button class="row danger" data-action="delete" style="margin-top:0.55rem;width:100%;">Delete hill</button>
+  `;
+  bindInputs(wrap, h);
+  propsEl.appendChild(wrap);
+}
+
 function renderLimitProps(l){
   const wrap = document.createElement('div');
   wrap.innerHTML = `
@@ -793,6 +832,7 @@ function findById(id){
   for (const p of M.riverPoints) if (p.id === id) return { kind: 'river', obj: p };
   for (const p of M.roadPoints) if (p.id === id) return { kind: 'road', obj: p };
   for (const h of M.houses) if (h.id === id) return { kind: 'house', obj: h };
+  for (const h of M.hills) if (h.id === id) return { kind: 'hill', obj: h };
   for (const l of M.limits) if (l.id === id) return { kind: 'limit', obj: l };
   return null;
 }
@@ -805,6 +845,7 @@ function deleteSelected(){
   else if (sel.kind === 'river') M.riverPoints = M.riverPoints.filter(p => p.id !== selectedId);
   else if (sel.kind === 'road') M.roadPoints = M.roadPoints.filter(p => p.id !== selectedId);
   else if (sel.kind === 'house') M.houses = M.houses.filter(h => h.id !== selectedId);
+  else if (sel.kind === 'hill') M.hills = M.hills.filter(h => h.id !== selectedId);
   else if (sel.kind === 'limit') M.limits = M.limits.filter(l => l.id !== selectedId);
   selectedId = null;
   scheduleRender();
@@ -814,7 +855,7 @@ function attr(s){ return String(s == null ? '' : s).replace(/"/g, '&quot;'); }
 function escapeHtml(s){ return String(s == null ? '' : s).replace(/[&<>]/g, c => ({ '&':'&amp;','<':'&lt;','>':'&gt;' }[c])); }
 
 function renderStatus(){
-  setStatus(`${M.stations.length} stns · ${M.features.length} features · ${M.riverPoints.length} river pts · ${M.roadPoints.length} road pts · ${M.houses.length} houses · ${M.limits.length} limits · ${totalKm().toFixed(2)} km`);
+  setStatus(`${M.stations.length} stns · ${M.features.length} features · ${M.riverPoints.length} river pts · ${M.roadPoints.length} road pts · ${M.houses.length} houses · ${M.hills.length} hills · ${M.limits.length} limits · ${totalKm().toFixed(2)} km`);
 }
 
 // ============================================================
@@ -884,6 +925,13 @@ function addHouse(x, y){
   const h = { id: uid('hs'), x, y };
   M.houses.push(h);
   return h;
+}
+function addHill(x, y){
+  const h = { id: uid('hl'), x, y, radius: 120, height: 35 };
+  M.hills.push(h);
+  selectedId = h.id;
+  setTool('select');
+  msg('Added hill — edit radius / height in the sidebar', 'ok');
 }
 function addLimit(x, y, mph){
   const l = { id: uid('lim'), x, y, mph: mph ?? 60 };
@@ -993,6 +1041,7 @@ svg.addEventListener('pointerdown', ev => {
   if (tool === 'station') addStation(w.x, w.y);
   else if (tool === 'river') addRiverPoint(w.x, w.y);
   else if (tool === 'road') addRoadPoint(w.x, w.y);
+  else if (tool === 'hill') addHill(w.x, w.y);
   else if (tool === 'paint'){
     // Begin a paint stroke. Drop a house at the click point, then enter
     // dragging mode so subsequent pointermove events add more houses at
@@ -1206,6 +1255,17 @@ function buildExport(){
     const lo = lateralOffset(h.x, h.y, samples);
     return { km: +lo.km.toFixed(2), lat: Math.round(lo.lateral) };
   });
+  // Hills — same {km, lat} projection plus per-hill radius + height so the
+  // sim can size each grass dome individually.
+  const hills = M.hills.map(h => {
+    const lo = lateralOffset(h.x, h.y, samples);
+    return {
+      km: +lo.km.toFixed(2),
+      lat: Math.round(lo.lateral),
+      radius: clamp(int(h.radius || 120), 20, 500),
+      height: clamp(int(h.height || 35),  5, 200),
+    };
+  });
   // Final
   const out = {
     version: 1,
@@ -1223,6 +1283,7 @@ function buildExport(){
     riverPath,
     roadPath,
     houses,
+    hills,
     shapePoints: [],
   };
   return { ok: true, json: out };
@@ -1325,6 +1386,21 @@ function importMap(json){
     const rx = p.ty / tlen, ry = -p.tx / tlen;
     return { id: uid('hs'), x: p.x + rx * (h.lat || 0), y: p.y + ry * (h.lat || 0) };
   }).filter(Boolean);
+  // Hills — same projection, plus we carry radius + height across the
+  // round-trip so the user can keep editing them.
+  M.hills = (json.hills || []).map(h => {
+    const p = trackPointAtKm(h.km, samples);
+    if (!p) return null;
+    const tlen = Math.hypot(p.tx, p.ty) || 1;
+    const rx = p.ty / tlen, ry = -p.tx / tlen;
+    return {
+      id: uid('hl'),
+      x: p.x + rx * (h.lat || 0),
+      y: p.y + ry * (h.lat || 0),
+      radius: h.radius || 120,
+      height: h.height || 35,
+    };
+  }).filter(Boolean);
   // Limits — at the (x, y) of the nearest track point at that km.
   M.limits = (json.limits || []).map(l => {
     const p = trackPointAtKm(l.km, samples);
@@ -1348,7 +1424,7 @@ $('btnNew').addEventListener('click', () => {
   if (M.stations.length && !confirm('Discard current line?')) return;
   Object.assign(M, {
     meta: { key: 'my-line', name: 'My Line', displayName: 'MY LINE', biome: 'countryside', service: '2X42 START → END' },
-    stations: [], features: [], riverPoints: [], roadPoints: [], houses: [], limits: [], edges: [],
+    stations: [], features: [], riverPoints: [], roadPoints: [], houses: [], hills: [], limits: [], edges: [],
   });
   selectedId = null;
   viewBox = { ...DEFAULT_ZOOM };
@@ -1358,7 +1434,7 @@ $('btnNew').addEventListener('click', () => {
 
 function saveLocal(){
   try {
-    const payload = { meta: M.meta, stations: M.stations, features: M.features, riverPoints: M.riverPoints, roadPoints: M.roadPoints, houses: M.houses, limits: M.limits, edges: M.edges, viewBox };
+    const payload = { meta: M.meta, stations: M.stations, features: M.features, riverPoints: M.riverPoints, roadPoints: M.roadPoints, houses: M.houses, hills: M.hills, limits: M.limits, edges: M.edges, viewBox };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   } catch (e){ /* quota or private mode — silent */ }
 }
@@ -1368,11 +1444,11 @@ function restoreLocal(){
     if (!raw) return false;
     const payload = JSON.parse(raw);
     if (!payload?.stations) return false;
-    Object.assign(M, { meta: payload.meta || M.meta, stations: payload.stations, features: payload.features || [], riverPoints: payload.riverPoints || [], roadPoints: payload.roadPoints || [], houses: payload.houses || [], limits: payload.limits || [], edges: payload.edges || [] });
+    Object.assign(M, { meta: payload.meta || M.meta, stations: payload.stations, features: payload.features || [], riverPoints: payload.riverPoints || [], roadPoints: payload.roadPoints || [], houses: payload.houses || [], hills: payload.hills || [], limits: payload.limits || [], edges: payload.edges || [] });
     if (payload.viewBox) viewBox = payload.viewBox;
     // Re-assign ids so the running counter doesn't reuse them. (Existing ids
     // stay, we just bump nextId past the highest numeric tail.)
-    const all = [...M.stations, ...M.features, ...M.riverPoints, ...M.roadPoints, ...M.houses, ...M.limits, ...M.edges];
+    const all = [...M.stations, ...M.features, ...M.riverPoints, ...M.roadPoints, ...M.houses, ...M.hills, ...M.limits, ...M.edges];
     let high = 0;
     for (const it of all){
       const m = /-(\d+)$/.exec(it.id || '');
