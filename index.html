@@ -111,6 +111,13 @@ button,input,select,textarea{font:inherit;color:inherit;}
    along the cursor stroke. */
 .house{fill:#d4a070;stroke:#7a4d2a;stroke-width:1px;vector-effect:non-scaling-stroke;cursor:pointer;}
 .house.selected{stroke:#ffaa66;stroke-width:2px;}
+/* Brush-size control in the toolbar — sits next to the Paint button. */
+#toolbar .brushSize{display:inline-flex;align-items:center;gap:0.35rem;font-size:0.66rem;letter-spacing:0.14em;color:rgba(207,230,247,0.7);font-family:'Roboto Mono',monospace;padding:0 0.35rem;}
+#toolbar .brushSize input{background:rgba(14,28,46,0.7);border:1px solid rgba(92,200,255,0.32);color:#cfe6f7;font-family:'Roboto Mono',monospace;font-size:0.7rem;padding:0.2rem 0.3rem;border-radius:2px;}
+#toolbar .brushSize input:focus{outline:none;border-color:#9ccfff;}
+/* Brush preview circle that follows the cursor while the Paint tool is
+   active so the user can see how big each drop step will be. */
+.brushPreview{fill:rgba(212,160,112,0.18);stroke:#d4a070;stroke-width:2px;stroke-dasharray:8,8;vector-effect:non-scaling-stroke;pointer-events:none;}
 /* Hill markers — a green triangle whose width hints at the hill's
    on-the-ground radius (drawn at the hill's centre). */
 .hill{fill:#5c8c4a;stroke:#284018;stroke-width:1.5px;vector-effect:non-scaling-stroke;cursor:pointer;opacity:0.78;}
@@ -139,6 +146,11 @@ button,input,select,textarea{font:inherit;color:inherit;}
     <button data-tool="river">＋ River pt</button>
     <button data-tool="road">＋ Road pt</button>
     <button data-tool="paint">▪ Houses</button>
+    <label class="brushSize" title="Distance between dropped houses while painting (metres). Smaller = denser cluster.">
+      Brush
+      <input id="brushSize" type="number" min="5" max="300" step="5" value="40" style="width:54px;">
+      m
+    </label>
     <button data-tool="hill">▲ Hill</button>
     <button data-tool="limit">＋ Limit</button>
     <span class="sep"></span>
@@ -221,11 +233,16 @@ const M = {
   edges: [],        // [{ id, from, to }]
 };
 // Paint-tool stroke state. When the user drags with the Paint tool active
-// we drop a house every PAINT_SPACING m so the cursor doesn't pile up dozens
-// at one point.
+// we drop a house every paintBrushSize() m so the cursor doesn't pile up
+// dozens at one point. The spacing is read live from the toolbar's brush-
+// size input so changing it mid-stroke takes effect on the next drop.
 let painting = false;
 let lastPaintXY = null;
-const PAINT_SPACING = 40;
+function paintBrushSize(){
+  const el = document.getElementById('brushSize');
+  const v = el ? parseInt(el.value, 10) : 40;
+  return (Number.isFinite(v) ? Math.max(5, Math.min(300, v)) : 40);
+}
 
 // Default start limit at km 0 is implicit at export time.
 let tool = 'select';
@@ -442,6 +459,19 @@ function render(){
     });
     sq.dataset.id = h.id;
     svg.appendChild(sq);
+  }
+  // Brush preview — a dashed circle the size of the current paint
+  // spacing, drawn at the cursor while the Paint tool is active so the
+  // user can see how big each drop will be before clicking. Skipped if
+  // the cursor hasn't reported a position yet (lastMousePos null).
+  if (tool === 'paint' && lastMousePos){
+    const r = paintBrushSize();
+    svg.appendChild(el('circle', {
+      cx: lastMousePos.x,
+      cy: -lastMousePos.y,
+      r,
+      class: 'brushPreview',
+    }));
   }
   // Hills — drawn as triangles sized by the hill's radius so the
   // footprint reads at a glance. Centre of the triangle's base sits
@@ -1045,7 +1075,7 @@ svg.addEventListener('pointerdown', ev => {
   else if (tool === 'paint'){
     // Begin a paint stroke. Drop a house at the click point, then enter
     // dragging mode so subsequent pointermove events add more houses at
-    // PAINT_SPACING-metre intervals. pointerup ends the stroke.
+    // paintBrushSize()-metre intervals. pointerup ends the stroke.
     painting = true;
     lastPaintXY = w;
     addHouse(w.x, w.y);
@@ -1068,17 +1098,20 @@ svg.addEventListener('pointermove', ev => {
   lastMousePos = w;
   // Rubber-band line follows the cursor while the track tool is mid-flow.
   if (tool === 'track' && trackFromId !== null) scheduleRender();
-  // Paint stroke — drop a house every PAINT_SPACING m so a fast drag
-  // produces a sparse row rather than dozens piled at one pixel.
+  // Paint stroke — drop a house every paintBrushSize() metres along the
+  // cursor path so a fast drag produces a sparse row rather than dozens
+  // piled at one pixel. Brush size is read live from the toolbar input
+  // so the user can adjust mid-stroke.
   if (painting && tool === 'paint' && lastPaintXY){
+    const spacing = paintBrushSize();
     const dx = w.x - lastPaintXY.x, dy = w.y - lastPaintXY.y;
-    if (Math.hypot(dx, dy) > PAINT_SPACING){
+    if (Math.hypot(dx, dy) > spacing){
       addHouse(w.x, w.y);
       lastPaintXY = w;
       scheduleRender();
     }
-    return;
   }
+  if (tool === 'paint') scheduleRender();   // brush preview follows cursor
   if (!interaction) return;
   if (interaction.kind === 'pan'){
     const rate = viewBox.w / svg.getBoundingClientRect().width;
