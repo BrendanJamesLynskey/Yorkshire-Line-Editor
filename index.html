@@ -92,6 +92,7 @@ button,input,select,textarea{font:inherit;color:inherit;}
 .featureMark.tunnel{fill:#3a3a3a;stroke:#1a1a1a;stroke-width:1.5px;vector-effect:non-scaling-stroke;}
 .featureMark.viaduct{fill:#a89878;stroke:#403020;stroke-width:1.5px;vector-effect:non-scaling-stroke;}
 .featureMark.mill{fill:#c84848;stroke:#601818;stroke-width:1.5px;vector-effect:non-scaling-stroke;}
+.featureMark.stadium{fill:#5cc8a8;stroke:#1f6048;stroke-width:1.5px;vector-effect:non-scaling-stroke;}
 .featureMark.selected{stroke:#ffaa66;stroke-width:3px;}
 .featureLabel{fill:rgba(207,230,247,0.7);font-size:12px;text-anchor:middle;}
 .riverPt{fill:#4090c8;stroke:#0a1828;stroke-width:1.5px;vector-effect:non-scaling-stroke;cursor:pointer;}
@@ -143,7 +144,13 @@ button,input,select,textarea{font:inherit;color:inherit;}
     <button data-tool="tunnel">＋ Tunnel</button>
     <button data-tool="viaduct">＋ Viaduct</button>
     <button data-tool="mill">＋ Mill</button>
+    <button data-tool="stadium">＋ Stadium</button>
     <button data-tool="river">＋ River pt</button>
+    <label class="brushSize" title="River channel width in metres (sim renders this as the water ribbon).">
+      River
+      <input id="riverWidth" type="number" min="4" max="120" step="2" value="14" style="width:54px;">
+      m
+    </label>
     <button data-tool="road">＋ Road pt</button>
     <button data-tool="paint">▪ Houses</button>
     <label class="brushSize" title="Distance between dropped houses while painting (metres). Smaller = denser cluster.">
@@ -594,6 +601,9 @@ function buildFeatureMark(f){
     icon = el('rect', { x: -sz, y: -sz*0.45, width: sz*2, height: sz*0.9, class: 'featureMark viaduct' + (selectedId === f.id ? ' selected' : '') });
   } else if (f.kind === 'mill'){
     icon = el('rect', { x: -sz*0.7, y: -sz*0.7, width: sz*1.4, height: sz*1.4, class: 'featureMark mill' + (selectedId === f.id ? ' selected' : '') });
+  } else if (f.kind === 'stadium'){
+    // Stadium — an ellipse with a smaller inner ellipse hint (pitch)
+    icon = el('ellipse', { cx: 0, cy: 0, rx: sz*1.1, ry: sz*0.75, class: 'featureMark stadium' + (selectedId === f.id ? ' selected' : '') });
   } else {
     icon = el('circle', { r: sz*0.7, class: 'featureMark' });
   }
@@ -746,6 +756,7 @@ function renderStationProps(s){
       <option value="modern"${sstyle==='modern'?' selected':''}>Modern (slab + slim posts)</option>
       <option value="victorian"${sstyle==='victorian'?' selected':''}>Victorian (ornate canopy + brick)</option>
       <option value="rural"${sstyle==='rural'?' selected':''}>Rural (timber lean-to)</option>
+      <option value="bridge"${sstyle==='bridge'?' selected':''}>Bridge (Blackfriars-style — platforms on a bridge)</option>
     </select></label>
     <label style="flex-direction:row;align-items:center;gap:0.55em;text-transform:none;letter-spacing:0.04em;font-size:0.74rem;color:rgba(207,230,247,0.78);">
       <input data-bind="footbridge" type="checkbox" style="width:1em;height:1em;accent-color:#5cc8ff;cursor:pointer;margin-top:0.05rem;"${footbridge?' checked':''}>
@@ -778,8 +789,9 @@ function renderFeatureProps(f){
       <option value="tunnel"${f.kind==='tunnel'?' selected':''}>Tunnel</option>
       <option value="viaduct"${f.kind==='viaduct'?' selected':''}>Viaduct</option>
       <option value="mill"${f.kind==='mill'?' selected':''}>Mill</option>
+      <option value="stadium"${f.kind==='stadium'?' selected':''}>Stadium</option>
     </select></label>
-    ${f.kind === 'mill' ? `
+    ${(f.kind === 'mill' || f.kind === 'stadium') ? `
       <label>Side <select data-bind="side">
         <option value="L"${f.side==='L'?' selected':''}>Left</option>
         <option value="R"${f.side==='R'?' selected':''}>Right</option>
@@ -932,7 +944,17 @@ function addStation(x, y){
   msg('Added ' + s.name, 'ok');
 }
 function addFeature(kind, x, y){
-  const f = { id: uid('ft'), kind, x, y, len: kind === 'mill' ? null : (kind === 'tunnel' ? 400 : kind === 'viaduct' ? 80 : 30), side: kind === 'mill' ? 'L' : null };
+  // Defaults per feature kind:
+  //   bridge / viaduct / tunnel — span length in metres
+  //   mill — side ('L'|'R'), no length
+  //   stadium — side, no length (stadium uses a fixed footprint sim-side)
+  let len, side;
+  if (kind === 'mill'){ len = null; side = 'L'; }
+  else if (kind === 'stadium'){ len = null; side = 'L'; }
+  else if (kind === 'tunnel') { len = 400; side = null; }
+  else if (kind === 'viaduct'){ len = 80;  side = null; }
+  else                        { len = 30;  side = null; }
+  const f = { id: uid('ft'), kind, x, y, len, side };
   M.features.push(f);
   selectedId = f.id;
   setTool('select');
@@ -1102,7 +1124,7 @@ svg.addEventListener('pointerdown', ev => {
   else if (tool === 'limit'){
     if (M.stations.length < 2){ msg('Add at least two stations first', 'err'); setTool('select'); return; }
     addLimit(w.x, w.y);
-  } else if (['bridge','tunnel','viaduct','mill'].includes(tool)){
+  } else if (['bridge','tunnel','viaduct','mill','stadium'].includes(tool)){
     if (M.stations.length < 2 && tool !== 'mill'){ msg('Add at least two stations first', 'err'); setTool('select'); return; }
     addFeature(tool, w.x, w.y);
   }
@@ -1331,6 +1353,15 @@ function buildExport(){
     limits: limitsRaw,
     features,
     riverPath,
+    // Top-level river channel width in metres. The sim's buildRiver
+    // uses this to size the water ribbon — bigger value = visibly wider
+    // river. Read live from the toolbar input so a user can tune it
+    // without re-opening the JSON.
+    riverWidth: (() => {
+      const el = document.getElementById('riverWidth');
+      const v = el ? parseInt(el.value, 10) : 14;
+      return Number.isFinite(v) ? clamp(v, 4, 120) : 14;
+    })(),
     roadPath,
     houses,
     hills,
@@ -1375,6 +1406,10 @@ function importMap(json){
   M.meta.name = json.name || 'My Line';
   M.meta.displayName = json.displayName || (M.meta.name || '').toUpperCase();
   M.meta.biome = json.biome || 'countryside';
+  // River channel width — sync the toolbar input so subsequent saves
+  // round-trip whatever the file declared (defaults to 14 m).
+  const rwEl = document.getElementById('riverWidth');
+  if (rwEl) rwEl.value = String(Math.max(4, Math.min(120, json.riverWidth || 14)));
   M.meta.service = json.service || '';
   // Edges are editor-only and don't survive a round-trip through the sim
   // schema; drop any from a previous session.
