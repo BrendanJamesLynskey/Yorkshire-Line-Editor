@@ -124,6 +124,23 @@ button,input,select,textarea{font:inherit;color:inherit;}
 .hill{fill:#5c8c4a;stroke:#284018;stroke-width:1.5px;vector-effect:non-scaling-stroke;cursor:pointer;opacity:0.78;}
 .hill.selected{stroke:#ffaa66;stroke-width:3px;opacity:1;}
 
+/* Routes panel — each route lists the stations it calls at, as a strip of
+   toggleable chips. Skipped stations are dimmed; called are highlighted. */
+#routesList{list-style:none;margin:0;padding:0;}
+#routesList li{border:1px solid rgba(92,200,255,0.18);border-radius:3px;padding:0.45rem 0.5rem 0.5rem;margin-bottom:0.45rem;background:rgba(12,24,40,0.5);}
+#routesList li .rh{display:flex;gap:0.3rem;align-items:center;margin-bottom:0.35rem;}
+#routesList li .rh input.nm{flex:1;background:#0c1828;border:1px solid rgba(92,200,255,0.22);color:#cfe6f7;padding:0.25rem 0.4rem;font-size:0.78rem;border-radius:2px;letter-spacing:normal;text-transform:none;}
+#routesList li .rh input.cd{width:5.5rem;background:#0c1828;border:1px solid rgba(92,200,255,0.22);color:#cfe6f7;padding:0.25rem 0.4rem;font-size:0.72rem;border-radius:2px;letter-spacing:normal;text-transform:uppercase;}
+#routesList li .rh button.x{background:transparent;border:1px solid rgba(255,128,96,0.32);color:#ffb09c;width:1.6rem;height:1.6rem;font-size:0.75rem;padding:0;border-radius:2px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+#routesList li .rh button.x:hover{background:rgba(80,28,20,0.55);color:#fff;}
+#routesList li .chips{display:flex;flex-wrap:wrap;gap:0.22rem;}
+#routesList li .chips .c{font-size:0.62rem;letter-spacing:0.08em;color:rgba(180,210,235,0.45);background:rgba(12,24,40,0.7);border:1px solid rgba(92,200,255,0.18);padding:0.18rem 0.45rem;border-radius:10px;cursor:pointer;font-family:'Roboto Mono',monospace;}
+#routesList li .chips .c.on{color:#fff;background:linear-gradient(180deg,rgba(92,200,255,0.4),rgba(92,200,255,0.14));border-color:#9ccfff;}
+#routesList li .chips .c:hover{border-color:rgba(92,200,255,0.55);color:#fff;}
+#routesList li .meta{font-size:0.6rem;color:rgba(180,210,235,0.4);letter-spacing:0.05em;margin-top:0.32rem;text-transform:uppercase;}
+#routesAdd{background:rgba(14,28,46,0.7);border:1px dashed rgba(92,200,255,0.4);color:rgba(207,230,247,0.85);padding:0.32rem 0.6rem;font-size:0.66rem;letter-spacing:0.14em;text-transform:uppercase;cursor:pointer;width:100%;font-family:'Roboto Mono',monospace;border-radius:2px;margin-bottom:0.55rem;}
+#routesAdd:hover{border-color:rgba(92,200,255,0.7);color:#fff;}
+
 </style>
 </head>
 <body>
@@ -189,6 +206,10 @@ button,input,select,textarea{font:inherit;color:inherit;}
 
       <h2>Stations <span style="float:right;color:rgba(180,210,235,0.45);font-size:0.6rem;" id="stationStats"></span></h2>
       <ol id="stationList"></ol>
+
+      <h2>Routes <span style="float:right;color:rgba(180,210,235,0.45);font-size:0.6rem;" id="routesStats"></span></h2>
+      <button id="routesAdd" type="button">+ Add route</button>
+      <ul id="routesList"></ul>
     </aside>
   </div>
 
@@ -238,6 +259,12 @@ const M = {
   // implicit Catmull-Rom curve through the stations array. Edges are
   // additive — they never reorder M.stations and never delete anything.
   edges: [],        // [{ id, from, to }]
+  // Named service patterns. Each route picks which stations are called at;
+  // skipped stations are still part of the line (the train physically
+  // passes through them) but the sim doesn't dwell or score them. callIds
+  // references station.id rather than indices so adding / removing
+  // stations doesn't silently corrupt routes.
+  routes: [],       // [{ id, name, code, callIds: [stationId] }]
 };
 // Paint-tool stroke state. When the user drags with the Paint tool active
 // we drop a house every paintBrushSize() m so the cursor doesn't pile up
@@ -713,6 +740,81 @@ function renderSidebar(){
     stationListEl.appendChild(li);
   });
   $('stationStats').textContent = M.stations.length + ' · ' + totalKm().toFixed(1) + ' km';
+
+  renderRoutes();
+}
+
+// Routes list — one row per defined service pattern. Each row shows the
+// editable name + service code, plus a chip strip with one chip per station
+// in the line. Clicking a chip toggles whether the route calls there.
+function renderRoutes(){
+  const listEl = document.getElementById('routesList');
+  const statsEl = document.getElementById('routesStats');
+  if (!listEl) return;
+  // Cull any stale callId references (station was deleted since the route
+  // was last edited). Safe to do on every render — Set lookup is cheap.
+  const liveIds = new Set(M.stations.map(s => s.id));
+  for (const r of M.routes){
+    r.callIds = (r.callIds || []).filter(id => liveIds.has(id));
+  }
+  statsEl.textContent = M.routes.length ? (M.routes.length + ' route' + (M.routes.length === 1 ? '' : 's')) : '';
+  listEl.innerHTML = '';
+  if (!M.routes.length){
+    const empty = document.createElement('div');
+    empty.className = 'none';
+    empty.textContent = M.stations.length < 2
+      ? 'Add at least 2 stations to define routes.'
+      : 'No routes yet. Without any, the sim falls back to calling at every station.';
+    empty.style.fontSize = '0.66rem';
+    empty.style.fontStyle = 'italic';
+    empty.style.color = 'rgba(180,210,235,0.45)';
+    empty.style.padding = '0.25rem 0';
+    listEl.appendChild(empty);
+    return;
+  }
+  for (const r of M.routes){
+    const li = document.createElement('li');
+    const chipsHtml = M.stations.map(s => {
+      const on = r.callIds.includes(s.id);
+      const label = (s.code && s.code.trim()) ? s.code : (s.name || '—').slice(0, 6);
+      return `<span class="c${on ? ' on' : ''}" data-rid="${r.id}" data-sid="${s.id}" title="${attr(s.name || '')}">${escapeHtml(label)}</span>`;
+    }).join('');
+    const calledCount = r.callIds.length;
+    li.innerHTML = `
+      <div class="rh">
+        <input class="nm" type="text" data-rid="${r.id}" data-field="name" value="${attr(r.name)}" placeholder="Route name">
+        <input class="cd" type="text" data-rid="${r.id}" data-field="code" value="${attr(r.code)}" placeholder="2X42" maxlength="6">
+        <button class="x" type="button" data-rdel="${r.id}" title="Delete route">✕</button>
+      </div>
+      <div class="chips">${chipsHtml}</div>
+      <div class="meta">${calledCount} of ${M.stations.length} stations · click chips to toggle</div>
+    `;
+    li.querySelectorAll('input[data-rid]').forEach(inp => {
+      inp.addEventListener('input', e => {
+        const route = M.routes.find(rt => rt.id === e.target.dataset.rid);
+        if (!route) return;
+        route[e.target.dataset.field] = e.target.value;
+        saveLocal();
+      });
+    });
+    li.querySelectorAll('.chips .c').forEach(ch => {
+      ch.addEventListener('click', e => {
+        const route = M.routes.find(rt => rt.id === e.target.dataset.rid);
+        if (!route) return;
+        const sid = e.target.dataset.sid;
+        const i = route.callIds.indexOf(sid);
+        if (i >= 0) route.callIds.splice(i, 1);
+        else route.callIds.push(sid);
+        scheduleRender();
+      });
+    });
+    li.querySelector('button[data-rdel]').addEventListener('click', e => {
+      const rid = e.currentTarget.dataset.rdel;
+      M.routes = M.routes.filter(rt => rt.id !== rid);
+      scheduleRender();
+    });
+    listEl.appendChild(li);
+  }
 }
 
 function renderStationProps(s){
@@ -1367,6 +1469,20 @@ function buildExport(){
     hills,
     shapePoints: [],
   };
+  // Routes — emit indices into the exported stations array so the JSON is
+  // self-contained. callIds are mapped via station.id → current index;
+  // routes that end up with zero called stations are dropped at export.
+  const idxById = new Map(M.stations.map((s, i) => [s.id, i]));
+  const routes = (M.routes || []).map(r => {
+    const idxs = (r.callIds || []).map(id => idxById.get(id)).filter(i => i !== undefined);
+    idxs.sort((a, b) => a - b);
+    if (!idxs.length) return null;
+    const e = { name: (r.name || 'Route').trim() || 'Route', stations: idxs };
+    const code = (r.code || '').trim();
+    if (code) e.code = code.toUpperCase();
+    return e;
+  }).filter(Boolean);
+  if (routes.length) out.routes = routes;
   return { ok: true, json: out };
 }
 function clamp(v, lo, hi){ return Math.max(lo, Math.min(hi, v)); }
@@ -1491,6 +1607,14 @@ function importMap(json){
     const p = trackPointAtKm(l.km, samples);
     return { id: uid('lim'), x: p.x, y: p.y, mph: l.mph, _km: l.km };
   });
+  // Routes — exported as { name, code, stations: [index] }; rehydrate to
+  // callIds against the just-rebuilt M.stations.
+  M.routes = (json.routes || []).map(r => {
+    const callIds = (r.stations || [])
+      .map(i => M.stations[i] && M.stations[i].id)
+      .filter(Boolean);
+    return { id: uid('rt'), name: r.name || 'Route', code: r.code || '', callIds };
+  });
   selectedId = null;
   zoomToFit();
 }
@@ -1505,11 +1629,25 @@ function trackPointAtKm(km, samples){
 // ============================================================
 // NEW / LOCALSTORAGE
 // ============================================================
+// Add route — defaults to calling at every existing station so the user
+// can subtract from the full pattern (typical case: one or two skip-stops).
+document.getElementById('routesAdd').addEventListener('click', () => {
+  const n = M.routes.length + 1;
+  M.routes.push({
+    id: uid('rt'),
+    name: 'Route ' + n,
+    code: '',
+    callIds: M.stations.map(s => s.id),
+  });
+  scheduleRender();
+  msg('Added Route ' + n, 'ok');
+});
+
 $('btnNew').addEventListener('click', () => {
   if (M.stations.length && !confirm('Discard current line?')) return;
   Object.assign(M, {
     meta: { key: 'my-line', name: 'My Line', displayName: 'MY LINE', biome: 'countryside', service: '2X42 START → END' },
-    stations: [], features: [], riverPoints: [], roadPoints: [], houses: [], hills: [], limits: [], edges: [],
+    stations: [], features: [], riverPoints: [], roadPoints: [], houses: [], hills: [], limits: [], edges: [], routes: [],
   });
   selectedId = null;
   viewBox = { ...DEFAULT_ZOOM };
@@ -1519,7 +1657,7 @@ $('btnNew').addEventListener('click', () => {
 
 function saveLocal(){
   try {
-    const payload = { meta: M.meta, stations: M.stations, features: M.features, riverPoints: M.riverPoints, roadPoints: M.roadPoints, houses: M.houses, hills: M.hills, limits: M.limits, edges: M.edges, viewBox };
+    const payload = { meta: M.meta, stations: M.stations, features: M.features, riverPoints: M.riverPoints, roadPoints: M.roadPoints, houses: M.houses, hills: M.hills, limits: M.limits, edges: M.edges, routes: M.routes, viewBox };
     localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
   } catch (e){ /* quota or private mode — silent */ }
 }
@@ -1529,11 +1667,11 @@ function restoreLocal(){
     if (!raw) return false;
     const payload = JSON.parse(raw);
     if (!payload?.stations) return false;
-    Object.assign(M, { meta: payload.meta || M.meta, stations: payload.stations, features: payload.features || [], riverPoints: payload.riverPoints || [], roadPoints: payload.roadPoints || [], houses: payload.houses || [], hills: payload.hills || [], limits: payload.limits || [], edges: payload.edges || [] });
+    Object.assign(M, { meta: payload.meta || M.meta, stations: payload.stations, features: payload.features || [], riverPoints: payload.riverPoints || [], roadPoints: payload.roadPoints || [], houses: payload.houses || [], hills: payload.hills || [], limits: payload.limits || [], edges: payload.edges || [], routes: payload.routes || [] });
     if (payload.viewBox) viewBox = payload.viewBox;
     // Re-assign ids so the running counter doesn't reuse them. (Existing ids
     // stay, we just bump nextId past the highest numeric tail.)
-    const all = [...M.stations, ...M.features, ...M.riverPoints, ...M.roadPoints, ...M.houses, ...M.hills, ...M.limits, ...M.edges];
+    const all = [...M.stations, ...M.features, ...M.riverPoints, ...M.roadPoints, ...M.houses, ...M.hills, ...M.limits, ...M.edges, ...(M.routes || [])];
     let high = 0;
     for (const it of all){
       const m = /-(\d+)$/.exec(it.id || '');
